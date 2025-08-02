@@ -502,12 +502,12 @@ class RAGChatbot:
 # Streamlit UI
 def main():
     st.set_page_config(
-        page_title="Production PDF RAG Chatbot",
+        page_title="DocuAI",
         page_icon="📚",
         layout="wide"
     )
     
-    st.title("📚 Production PDF RAG Chatbot")
+    st.title("DocuAI")
     st.markdown("Advanced RAG system with conversational memory, metadata filtering, and agent capabilities")
     
     # Initialize chatbot
@@ -561,12 +561,12 @@ def main():
         )
         
         # Clear conversation
-        if st.button("🗑️ Clear Conversation"):
+        if st.button("Clear Conversation"):
             chatbot.clear_conversation()
             st.success("Conversation cleared!")
     
     # Main chat interface
-    st.header("💬 Chat Interface")
+    st.header("Chat Interface")
     
     # Display chat history
     if hasattr(chatbot.memory, 'messages') and chatbot.memory.messages:
@@ -576,7 +576,7 @@ def main():
                 
                 # Show sources for assistant messages
                 if message.role == "assistant" and message.sources:
-                    with st.expander("📚 Sources"):
+                    with st.expander("📄 Sources"):
                         for source in message.sources:
                             st.write(f"**{source['metadata']['document_name']}** (Page {source['metadata']['page_number']})")
                             st.write(f"Relevance: {source['score']:.3f}")
@@ -601,7 +601,7 @@ def main():
                 
                 # Show sources
                 if sources:
-                    with st.expander("📚 Sources"):
+                    with st.expander("📄 Sources"):
                         for source in sources:
                             st.write(f"**{source['metadata']['document_name']}** (Page {source['metadata']['page_number']})")
                             st.write(f"Relevance: {source['score']:.3f}")
