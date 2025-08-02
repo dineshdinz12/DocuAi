@@ -312,6 +312,38 @@ class VectorDatabase:
             logger.error(f"Error upserting to Pinecone: {str(e)}")
             raise
     
+    def search(self, query_embedding: List[float], top_k: int = 5, 
+               filters: Dict[str, Any] = None) -> List[Dict[str, Any]]:
+        """Search for similar chunks with optional metadata filtering"""
+        try:
+            query_params = {
+                'vector': query_embedding,
+                'top_k': top_k,
+                'include_metadata': True
+            }
+            
+            if filters:
+                # Sanitize filter values
+                safe_filters = {}
+                for key, value in filters.items():
+                    if isinstance(value, str):
+                        safe_filters[key] = sanitize_id(value) if key == 'document_name' else value
+                    else:
+                        safe_filters[key] = value
+                query_params['filter'] = safe_filters
+            
+            results = self.index.query(**query_params)
+            
+            return [{
+                'content': match['metadata'].get('content', ''),
+                'score': match['score'],
+                'metadata': match['metadata']
+            } for match in results['matches']]
+            
+        except Exception as e:
+            logger.error(f"Error searching Pinecone: {str(e)}")
+            raise
+    
     def delete_vectors_by_document(self, document_name: str):
         """Delete all vectors for a specific document from Pinecone"""
         try:
@@ -593,12 +625,12 @@ class RAGChatbot:
     
     def search(self, query: str, top_k: int = 5, 
                filters: Dict[str, Any] = None) -> List[Dict[str, Any]]:
-        """Search for relevant chunks"""
+        """Search for relevant chunks using the vector database"""
         try:
             # Generate query embedding
             query_embedding = self.embedding_manager.generate_query_embedding(query)
             
-            # Search vector database
+            # Search vector database using the vector_db instance
             results = self.vector_db.search(query_embedding, top_k, filters)
             
             return results
@@ -650,38 +682,6 @@ class RAGChatbot:
             return stats.total_vector_count
         except:
             return 0
-    
-    def search(self, query_embedding: List[float], top_k: int = 5, 
-               filters: Dict[str, Any] = None) -> List[Dict[str, Any]]:
-        """Search for similar chunks with optional metadata filtering"""
-        try:
-            query_params = {
-                'vector': query_embedding,
-                'top_k': top_k,
-                'include_metadata': True
-            }
-            
-            if filters:
-                # Sanitize filter values
-                safe_filters = {}
-                for key, value in filters.items():
-                    if isinstance(value, str):
-                        safe_filters[key] = sanitize_id(value) if key == 'document_name' else value
-                    else:
-                        safe_filters[key] = value
-                query_params['filter'] = safe_filters
-            
-            results = self.index.query(**query_params)
-            
-            return [{
-                'content': match['metadata'].get('content', ''),
-                'score': match['score'],
-                'metadata': match['metadata']
-            } for match in results['matches']]
-            
-        except Exception as e:
-            logger.error(f"Error searching Pinecone: {str(e)}")
-            raise
     
     def delete_document(self, document_name: str) -> bool:
         """Delete a specific document from both local storage and vector database"""
