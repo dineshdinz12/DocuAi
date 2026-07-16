@@ -21,12 +21,18 @@ from sentence_transformers import SentenceTransformer
 import pinecone
 from pinecone import Pinecone, ServerlessSpec
 import google.generativeai as genai
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.document_loaders import PyPDFLoader
+
+try:
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+except ImportError:
+    from langchain.text_splitter import RecursiveCharacterTextSplitter
+
+try:
+    from langchain_community.document_loaders import PyPDFLoader
+except ImportError:
+    from langchain.document_loaders import PyPDFLoader
+
 from langchain_core.documents import Document
-from langchain.memory import ConversationBufferWindowMemory
-from langchain.agents import AgentExecutor, create_react_agent
-from langchain.tools import Tool
 from langchain_core.prompts import PromptTemplate
 import tiktoken
 
