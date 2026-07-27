@@ -1,5 +1,5 @@
 from fastapi import FastAPI, UploadFile, File, BackgroundTasks, HTTPException, Header
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Dict, Any, List, Optional
 from pydantic import BaseModel
@@ -71,6 +71,14 @@ def get_document_url(doc_id: str, x_session_id: str = Header(default="default_se
     if url:
         return {"url": url}
     raise HTTPException(status_code=404, detail="URL generation failed")
+
+@app.get("/api/v1/documents/{doc_id}/download")
+def download_document(doc_id: str, x_session_id: str = Header(default="default_session")):
+    docs = document_service.list_documents(session_id=x_session_id)
+    doc = next((d for d in docs if d["id"] == doc_id), None)
+    if doc and os.path.exists(doc["key"]):
+        return FileResponse(path=doc["key"], filename=doc["name"], media_type="application/pdf")
+    raise HTTPException(status_code=404, detail="File not found")
 
 class ChatRequest(BaseModel):
     query: str
