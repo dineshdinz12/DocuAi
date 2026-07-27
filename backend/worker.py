@@ -29,13 +29,15 @@ def process_document_task(document_id: str, file_uri: str, session_id: str = "de
     
     try:
         from services.document_service import document_service
-        # Object key format: session_id/doc_id_filename.pdf or doc_id_filename.pdf
-        if f"s3://{document_service.bucket}/" in file_uri:
-            object_name = file_uri.replace(f"s3://{document_service.bucket}/", "")
+        if document_service.use_s3:
+            if f"s3://{document_service.bucket}/" in file_uri:
+                object_name = file_uri.replace(f"s3://{document_service.bucket}/", "")
+            else:
+                object_name = file_uri.split("/")[-1] if "/" in file_uri else file_uri
+                
+            document_service.s3_client.download_file(document_service.bucket, object_name, local_path)
         else:
-            object_name = file_uri.split("/")[-1] if "/" in file_uri else file_uri
-            
-        document_service.s3_client.download_file(document_service.bucket, object_name, local_path)
+            local_path = file_uri
         
         # 2. Extract Text
         loader = PyPDFLoader(local_path)
