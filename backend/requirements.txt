@@ -13,3 +13,4 @@ langchain-groq>=0.1.0
 langchain-huggingface>=0.0.1
 pypdf>=4.0.0
 requests>=2.31.0
+firebase-admin>=6.5.0

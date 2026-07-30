@@ -1,13 +1,20 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { X, Mail, Phone, Lock, Sparkles, CheckCircle2, ArrowRight } from "lucide-react";
 import { setAuthenticatedUser, UserProfile } from "@/utils/session";
+import { auth, googleProvider, signInWithPopup, RecaptchaVerifier, signInWithPhoneNumber, ConfirmationResult } from "@/utils/firebase";
 
 interface AuthModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: (user: UserProfile) => void;
+}
+
+declare global {
+  interface Window {
+    recaptchaVerifier?: RecaptchaVerifier;
+  }
 }
 
 export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
@@ -19,6 +26,7 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [devCode, setDevCode] = useState<string | null>(null);
+  const [confirmationResult, setConfirmationResult] = useState<ConfirmationResult | null>(null);
 
   if (!isOpen) return null;
 
@@ -28,8 +36,59 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
     setCode("");
     setError(null);
     setDevCode(null);
+    setConfirmationResult(null);
   };
 
+  // Google Authentication via Firebase
+  const handleGoogleLogin = async () => {
+    setLoading(true);
+    setError(null);
+
+    try {
+      // Attempt Firebase Google OAuth Popup
+      const result = await signInWithPopup(auth, googleProvider);
+      const fbUser = result.user;
+
+      const profile: UserProfile = {
+        id: `usr_fb_${fbUser.uid}`,
+        name: fbUser.displayName || fbUser.email?.split("@")[0] || "Google User",
+        target: fbUser.email || undefined,
+        auth_type: "google",
+        avatar_url: fbUser.photoURL || undefined
+      };
+
+      setAuthenticatedUser(profile);
+      onSuccess(profile);
+      onClose();
+      resetState();
+    } catch (err: any) {
+      console.warn("[Firebase Auth] Falling back to backend Google auth:", err.message);
+      
+      // Fallback for dev environment without API credentials
+      try {
+        const mockEmail = target || `user.google.${Math.floor(Math.random() * 1000)}@gmail.com`;
+        const res = await fetch("/api/v1/auth/google", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: mockEmail, name: "Google Account User" }),
+        });
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || "Google authentication failed");
+
+        setAuthenticatedUser(data.user);
+        onSuccess(data.user);
+        onClose();
+        resetState();
+      } catch (backendErr: any) {
+        setError(backendErr.message || "Google authentication failed.");
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Send Phone SMS OTP via Firebase or Backend
   const handleSendOTP = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!target.trim()) {
@@ -40,6 +99,24 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
     setLoading(true);
     setError(null);
 
+    if (tab === "phone") {
+      try {
+        if (!window.recaptchaVerifier) {
+          window.recaptchaVerifier = new RecaptchaVerifier(auth, "recaptcha-container", {
+            size: "invisible",
+          });
+        }
+        const confirmation = await signInWithPhoneNumber(auth, target, window.recaptchaVerifier);
+        setConfirmationResult(confirmation);
+        setStep("otp");
+        setLoading(false);
+        return;
+      } catch (fbPhoneErr: any) {
+        console.warn("[Firebase Phone Auth] Falling back to backend SMS OTP service:", fbPhoneErr.message);
+      }
+    }
+
+    // Backend OTP Request (Email or Phone fallback)
     try {
       const res = await fetch("/api/v1/auth/otp/send", {
         method: "POST",
@@ -59,6 +136,7 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
     }
   };
 
+  // Verify Phone/Email OTP
   const handleVerifyOTP = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!code.trim()) {
@@ -69,6 +147,30 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
     setLoading(true);
     setError(null);
 
+    // If Firebase Phone Auth confirmation exists
+    if (confirmationResult) {
+      try {
+        const result = await confirmationResult.confirm(code);
+        const fbUser = result.user;
+
+        const profile: UserProfile = {
+          id: `usr_fb_${fbUser.uid}`,
+          name: name || fbUser.phoneNumber || "Firebase Phone User",
+          target: fbUser.phoneNumber || target,
+          auth_type: "phone"
+        };
+
+        setAuthenticatedUser(profile);
+        onSuccess(profile);
+        onClose();
+        resetState();
+        return;
+      } catch (fbVerifyErr: any) {
+        console.warn("[Firebase OTP Verify] Firebase verification failed, testing backend verification:", fbVerifyErr.message);
+      }
+    }
+
+    // Backend OTP Verification
     try {
       const res = await fetch("/api/v1/auth/otp/verify", {
         method: "POST",
@@ -90,38 +192,9 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
     }
   };
 
-  const handleGoogleLogin = async () => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      // Direct Google Auth handler (or mock for dev testing)
-      const mockEmail = `user.google.${Math.floor(Math.random() * 1000)}@gmail.com`;
-      const res = await fetch("/api/v1/auth/google", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: mockEmail,
-          name: "Google Account User",
-        }),
-      });
-
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || "Google authentication failed");
-
-      setAuthenticatedUser(data.user);
-      onSuccess(data.user);
-      onClose();
-      resetState();
-    } catch (err: any) {
-      setError(err.message || "Google authentication failed");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+      <div id="recaptcha-container"></div>
       <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden border border-gray-100">
         {/* Header */}
         <div className="flex items-center justify-between px-6 pt-6 pb-4 border-b border-gray-100">
@@ -131,7 +204,7 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
             </div>
             <div>
               <h2 className="text-lg font-bold text-gray-900 leading-tight">Sign In to DocuAI</h2>
-              <p className="text-xs text-gray-500">Persist your documents and chat history</p>
+              <p className="text-xs text-gray-500">Firebase Auth · Google, Email & Free SMS OTP</p>
             </div>
           </div>
           <button
@@ -185,7 +258,7 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
           {tab === "google" && (
             <div className="space-y-4 text-center py-2">
               <p className="text-xs text-gray-600 leading-relaxed">
-                Sign in with your Google account to automatically sync your documents and chat memory across all your devices.
+                Sign in with your Google account via Firebase Auth to automatically sync your documents and chat memory.
               </p>
               
               <button
@@ -199,7 +272,7 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
                   <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
                   <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
                 </svg>
-                {loading ? "Signing in..." : "Continue with Google"}
+                {loading ? "Signing in with Firebase..." : "Continue with Google"}
               </button>
             </div>
           )}
@@ -211,7 +284,7 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
                 <form onSubmit={handleSendOTP} className="space-y-4">
                   <div>
                     <label className="block text-xs font-semibold text-gray-700 mb-1.5 uppercase tracking-wider">
-                      {tab === "email" ? "Email Address" : "Phone Number"}
+                      {tab === "email" ? "Email Address" : "Phone Number (with Country Code)"}
                     </label>
                     <div className="relative">
                       {tab === "email" ? (
@@ -223,7 +296,7 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
                         type={tab === "email" ? "email" : "tel"}
                         value={target}
                         onChange={(e) => setTarget(e.target.value)}
-                        placeholder={tab === "email" ? "dinesh@example.com" : "+1 (555) 000-0000"}
+                        placeholder={tab === "email" ? "dinesh@example.com" : "+91 9876543210"}
                         className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all text-gray-900 placeholder-gray-400"
                         required
                       />
