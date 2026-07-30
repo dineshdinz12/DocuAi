@@ -39,6 +39,14 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
     setConfirmationResult(null);
   };
 
+  const parseJsonResponse = async (res: Response) => {
+    const contentType = res.headers.get("content-type");
+    if (contentType && contentType.includes("application/json")) {
+      return await res.json();
+    }
+    throw new Error(`Server returned HTTP ${res.status}. Please ensure backend is running.`);
+  };
+
   // Google Authentication via Firebase
   const handleGoogleLogin = async () => {
     setLoading(true);
@@ -73,7 +81,7 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
           body: JSON.stringify({ email: mockEmail, name: "Google Account User" }),
         });
 
-        const data = await res.json();
+        const data = await parseJsonResponse(res);
         if (!res.ok) throw new Error(data.detail || "Google authentication failed");
 
         setAuthenticatedUser(data.user);
@@ -124,7 +132,7 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
         body: JSON.stringify({ target, type: tab }),
       });
 
-      const data = await res.json();
+      const data = await parseJsonResponse(res);
       if (!res.ok) throw new Error(data.detail || "Failed to send OTP code");
 
       setDevCode(data.dev_code || "123456");
@@ -178,7 +186,7 @@ export function AuthModal({ isOpen, onClose, onSuccess }: AuthModalProps) {
         body: JSON.stringify({ target, code, name }),
       });
 
-      const data = await res.json();
+      const data = await parseJsonResponse(res);
       if (!res.ok) throw new Error(data.detail || "Verification failed");
 
       setAuthenticatedUser(data.user);
