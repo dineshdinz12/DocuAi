@@ -3,9 +3,10 @@
 import { useState, useEffect } from "react";
 import { DocumentUpload } from "@/components/DocumentUpload";
 import { ChatInterface } from "@/components/ChatInterface";
-import { Sparkles, Settings, FileText, Trash2, ExternalLink } from "lucide-react";
+import { AuthModal } from "@/components/AuthModal";
+import { Sparkles, Settings, FileText, Trash2, ExternalLink, User, LogOut, LogIn } from "lucide-react";
 
-import { getSessionId } from "@/utils/session";
+import { getSessionId, getCurrentUser, clearUserSession, UserProfile } from "@/utils/session";
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "";
 
@@ -20,13 +21,23 @@ export interface Document {
 export default function Home() {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [selectedDocIds, setSelectedDocIds] = useState<string[]>([]);
+  const [user, setUser] = useState<UserProfile | null>(null);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
 
-  const fetchDocuments = async () => {
+  useEffect(() => {
+    setUser(getCurrentUser());
+  }, []);
+
+  const fetchDocuments = async (retries = 3) => {
     try {
       const res = await fetch(`${API_BASE_URL}/api/v1/documents`, {
         headers: { "x-session-id": getSessionId() }
       });
       if (!res.ok) {
+        if (retries > 0) {
+          setTimeout(() => fetchDocuments(retries - 1), 1000);
+          return;
+        }
         console.warn(`[DocuAI] Document list fetch returned status ${res.status}`);
         return;
       }
@@ -35,6 +46,10 @@ export default function Home() {
         setDocuments(data);
       }
     } catch (e) {
+      if (retries > 0) {
+        setTimeout(() => fetchDocuments(retries - 1), 1000);
+        return;
+      }
       console.error("Failed to fetch documents", e);
     }
   };
@@ -145,7 +160,44 @@ export default function Home() {
           </div>
         </div>
         
-        <div className="p-4 border-t border-gray-200 bg-[#f9f9f9]">
+        <div className="p-4 border-t border-gray-200 bg-[#f9f9f9] space-y-2">
+          {user ? (
+            <div className="p-2.5 rounded-xl bg-white border border-gray-200 shadow-sm flex items-center justify-between">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-8 h-8 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center font-bold text-xs flex-shrink-0">
+                  {user.avatar_url ? (
+                    <img src={user.avatar_url} alt={user.name} className="w-full h-full rounded-full object-cover" />
+                  ) : (
+                    user.name.charAt(0).toUpperCase()
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-xs font-bold text-gray-900 truncate">{user.name}</p>
+                  <p className="text-[10px] text-gray-500 capitalize">{user.auth_type} Auth</p>
+                </div>
+              </div>
+              <button
+                onClick={() => {
+                  clearUserSession();
+                  setUser(null);
+                  fetchDocuments();
+                }}
+                className="p-1.5 hover:bg-red-50 text-gray-400 hover:text-red-600 rounded-lg transition-colors"
+                title="Sign Out"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setIsAuthModalOpen(true)}
+              className="w-full flex items-center justify-center gap-2 py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs rounded-xl transition-all shadow-sm shadow-indigo-200"
+            >
+              <LogIn className="w-3.5 h-3.5" />
+              <span>Sign In / Sign Up</span>
+            </button>
+          )}
+
           <div className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-gray-200 cursor-pointer text-sm text-gray-700 transition-colors">
             <Settings className="w-4 h-4 text-gray-500" />
             <span>Settings & Models</span>
@@ -167,6 +219,16 @@ export default function Home() {
           <ChatInterface selectedDocuments={documents.filter(d => selectedDocIds.includes(d.id))} />
         </div>
       </main>
+
+      {/* Auth Modal Component */}
+      <AuthModal
+        isOpen={isAuthModalOpen}
+        onClose={() => setIsAuthModalOpen(false)}
+        onSuccess={(authenticatedUser) => {
+          setUser(authenticatedUser);
+          fetchDocuments();
+        }}
+      />
     </div>
   );
 }
