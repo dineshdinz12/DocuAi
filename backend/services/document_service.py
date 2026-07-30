@@ -2,6 +2,7 @@ import boto3
 from fastapi import UploadFile
 import uuid
 import os
+from datetime import datetime
 from core.config import settings
 
 class DocumentService:
@@ -103,7 +104,7 @@ class DocumentService:
                         "name": orig_name,
                         "key": full_path,
                         "size": stat.st_size,
-                        "uploaded_at": os.path.getmtime(full_path)
+                        "uploaded_at": datetime.fromtimestamp(stat.st_mtime).isoformat()
                     })
             docs.sort(key=lambda x: x['uploaded_at'], reverse=True)
             return docs

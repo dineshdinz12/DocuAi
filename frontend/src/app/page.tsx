@@ -7,7 +7,7 @@ import { Sparkles, Settings, FileText, Trash2, ExternalLink } from "lucide-react
 
 import { getSessionId } from "@/utils/session";
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "";
 
 export interface Document {
   id: string;
@@ -26,8 +26,14 @@ export default function Home() {
       const res = await fetch(`${API_BASE_URL}/api/v1/documents`, {
         headers: { "x-session-id": getSessionId() }
       });
+      if (!res.ok) {
+        console.warn(`[DocuAI] Document list fetch returned status ${res.status}`);
+        return;
+      }
       const data = await res.json();
-      setDocuments(data);
+      if (Array.isArray(data)) {
+        setDocuments(data);
+      }
     } catch (e) {
       console.error("Failed to fetch documents", e);
     }
@@ -40,12 +46,14 @@ export default function Home() {
   const handleDelete = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
     try {
-      await fetch(`${API_BASE_URL}/api/v1/documents/${id}`, { 
+      const res = await fetch(`${API_BASE_URL}/api/v1/documents/${id}`, { 
         method: "DELETE",
         headers: { "x-session-id": getSessionId() }
       });
-      setDocuments(docs => docs.filter(d => d.id !== id));
-      setSelectedDocIds(ids => ids.filter(selectedId => selectedId !== id));
+      if (res.ok) {
+        setDocuments(docs => docs.filter(d => d.id !== id));
+        setSelectedDocIds(ids => ids.filter(selectedId => selectedId !== id));
+      }
     } catch (err) {
       console.error("Failed to delete", err);
     }
@@ -57,8 +65,9 @@ export default function Home() {
       const res = await fetch(`${API_BASE_URL}/api/v1/documents/${id}/url`, {
         headers: { "x-session-id": getSessionId() }
       });
+      if (!res.ok) return;
       const data = await res.json();
-      if (data.url) {
+      if (data && data.url) {
         window.open(data.url, "_blank");
       }
     } catch (err) {

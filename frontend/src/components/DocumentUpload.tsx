@@ -40,7 +40,7 @@ export function DocumentUpload({ onUploadSuccess }: DocumentUploadProps) {
       const formData = new FormData();
       formData.append("file", selectedFile);
       
-      const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || "";
       const response = await fetch(`${baseUrl}/api/v1/documents/upload`, {
         method: "POST",
         headers: {
