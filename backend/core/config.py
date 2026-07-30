@@ -17,6 +17,13 @@ class Settings(BaseSettings):
     QDRANT_PORT: int = 6333
     QDRANT_API_KEY: str = "" # Set for Qdrant Cloud!
 
+    # Authentication Integration Keys (Optional Production APIs)
+    GOOGLE_CLIENT_ID: str = ""
+    RESEND_API_KEY: str = ""
+    TWILIO_ACCOUNT_SID: str = ""
+    TWILIO_AUTH_TOKEN: str = ""
+    TWILIO_PHONE_NUMBER: str = ""
+
     class Config:
         env_file = ".env"
         extra = "ignore"
