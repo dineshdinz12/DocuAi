@@ -72,7 +72,7 @@ export function ChatInterface({ selectedDocuments }: ChatInterfaceProps) {
     setShowSuggestions(false);
 
     try {
-      const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const baseUrl = process.env.NEXT_PUBLIC_API_URL || "";
       const res = await fetch(`${baseUrl}/api/v1/chat`, {
         method: "POST",
         headers: { 
