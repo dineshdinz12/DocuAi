@@ -1,23 +1,23 @@
-# DocuAI - Enterprise Multi-Document RAG Platform
+# DocuAI
 
-DocuAI is a high-performance, serverless Retrieval-Augmented Generation (RAG) platform built for multi-document intelligence and automated semantic question-answering over PDF files.
+> Serverless Enterprise Multi-Document RAG Platform
 
-Version 2 introduces a **Unified Single-Port Architecture** that eliminates CORS complexity, incorporates **Multi-Tenant User Session Isolation**, and leverages zero-cost serverless APIs (**Groq**, **Hugging Face**, **Qdrant Cloud**).
+DocuAI is a high-performance, serverless Retrieval-Augmented Generation (RAG) platform engineered for multi-document intelligence and automated semantic question-answering over PDF files.
 
 ---
 
-## 🚀 Key Architectural Features
+## Architectural Highlights
 
-- **Unified Single-Port Ingress**: Exposes a single public port (`:3000`) for both Frontend UI and Backend APIs via Next.js internal reverse proxy rewrites, eliminating cross-origin resource sharing (CORS) security overhead.
-- **One-Command Process Orchestration**: Integrated process launcher (`make dev` or `npm run dev:all`) that boots both FastAPI and Next.js concurrently.
-- **Serverless LLM Inference**: Sub-second streaming responses powered by **Groq API** (`llama-3.1-8b-instant`).
-- **Cloud Vector Storage**: 384-dimensional dense vector embeddings generated via **Hugging Face Inference API** and indexed in **Qdrant Cloud**.
+- **Unified Single-Port Ingress**: Exposes a single public interface on port `3000` for both the Next.js UI and FastAPI endpoints via internal reverse-proxy rewrites, eliminating cross-origin resource sharing (CORS) security overhead.
+- **One-Command Process Orchestration**: Integrated task runner (`make dev` or `npm run dev:all`) that launches Uvicorn FastAPI and Next.js concurrently.
+- **Serverless LLM Inference**: Low-latency streaming responses powered by the Groq Inference Engine (`llama-3.1-8b-instant`).
+- **Cloud Vector Storage**: 384-dimensional dense vector embeddings generated via Hugging Face Inference APIs and indexed in Qdrant Cloud.
 - **Multi-Tenant Session Isolation**: Client-scoped session management (`x-session-id`) enforcing strict user-level document privacy.
-- **Asynchronous Processing Pipeline**: Native **FastAPI BackgroundTasks** execution replacing heavy worker queues.
+- **Asynchronous Processing Pipeline**: Native FastAPI `BackgroundTasks` execution replacing heavy worker queues.
 
 ---
 
-## 🏗️ System Architecture
+## System Architecture
 
 ```
                        SINGLE PUBLIC PORT (:3000)
@@ -49,29 +49,25 @@ Version 2 introduces a **Unified Single-Port Architecture** that eliminates CORS
 
 ---
 
-## 🛠️ Technology Stack
+## Technology Stack
 
-### Frontend
-- **Framework**: Next.js 15 (App Router, TypeScript, React 19)
-- **Styling**: Tailwind CSS
-- **Primitives**: Lucide React Icons
-- **Markdown**: React Markdown with GitHub Flavored Markdown (GFM)
-
-### Backend
-- **Framework**: FastAPI (Python 3.11+)
-- **LLM Engine**: Groq API (`llama-3.1-8b-instant`)
-- **Embeddings**: Hugging Face Inference API (`sentence-transformers/all-MiniLM-L6-v2`)
-- **Vector Database**: Qdrant Cloud
-- **Object Storage**: MinIO / S3 compatible storage
-- **Orchestration**: LangChain Framework
+| Layer | Technology | Description |
+| :--- | :--- | :--- |
+| **Frontend Framework** | Next.js 15 (App Router) | React 19, TypeScript |
+| **Styling & UI** | Tailwind CSS | Lucide React primitives, GFM markdown |
+| **Backend API** | FastAPI (Python 3.11+) | Asynchronous execution, BackgroundTasks |
+| **LLM Inference** | Groq API | `llama-3.1-8b-instant` streaming model |
+| **Embeddings** | Hugging Face Inference API | `sentence-transformers/all-MiniLM-L6-v2` |
+| **Vector Database** | Qdrant Cloud | Metadata-filtered similarity search |
+| **Object Storage** | MinIO / AWS S3 | Client-scoped bucket prefixes |
 
 ---
 
-## ⚡ Quickstart (Local Development)
+## Quickstart
 
-### 1. Environment Setup
+### 1. Environment Configuration
 
-Create `backend/.env`:
+Create `backend/.env` with the following configuration parameters:
 
 ```env
 # Cloud API Credentials
@@ -83,19 +79,19 @@ MAIN_LLM_MODEL=llama-3.1-8b-instant
 QDRANT_HOST=https://your-cluster-id.cloud.qdrant.io
 QDRANT_API_KEY=your_qdrant_cloud_api_key
 
-# Object Storage
+# Object Storage Configuration
 MINIO_ENDPOINT=localhost:9000
 MINIO_ACCESS_KEY=minioadmin
 MINIO_SECRET_KEY=minioadmin
 MINIO_BUCKET=documents
 ```
 
-### 2. One-Command Developer Launch
+### 2. Local Development
 
 Run the entire application stack using a single command:
 
 ```bash
-# Option A: Using Makefile (Root)
+# Option A: Root Makefile
 make dev
 
 # Option B: From frontend directory
@@ -104,41 +100,54 @@ npm install
 npm run dev:all
 ```
 
-Access the unified platform at **`http://localhost:3000`**.
+Access the application at `http://localhost:3000`.
 
 ---
 
-## 🐳 Docker Deployment (Containerized)
+## Containerized Deployment
 
-To launch the full stack in Docker exposing **only port 3000**:
+To deploy using Docker Compose exposing only port 3000:
 
 ```bash
-# Boot single-port container environment
+# Start container environment
 make docker-dev
 
-# Tear down containers
+# Stop container environment
 make docker-down
 ```
 
 ---
 
-## 🌐 Production Cloud Deployment
+## Production Cloud Deployment
 
-### 1. Frontend Deployment (Vercel)
-1. Import repository into Vercel.
-2. In **Project Settings $\rightarrow$ Build & Deployment Settings**:
+### Frontend (Vercel)
+
+1. Import the repository into Vercel.
+2. In **Project Settings > Build and Deployment**:
    - Set **Root Directory** to `frontend`.
 3. In **Environment Variables**:
-   - Set `BACKEND_INTERNAL_URL` = `https://your-backend-api.onrender.com`
-4. Deploy! Next.js will automatically proxy `/api/*` traffic server-side.
+   - Set `BACKEND_INTERNAL_URL` = `https://your-backend-service.onrender.com`
+4. Deploy. Next.js handles `/api/*` rewrites server-side.
 
-### 2. Backend Deployment (Render / Railway)
-1. Deploy `backend/` as a Web Service.
+### Backend (Render / Railway)
+
+1. Deploy `backend/` as a Python Web Service.
 2. **Start Command**: `uvicorn main:app --host 0.0.0.0 --port $PORT`
-3. Add environment variables: `GROQ_API_KEY`, `HF_TOKEN`, `QDRANT_HOST`, `QDRANT_API_KEY`.
+3. Configure environment variables: `GROQ_API_KEY`, `HF_TOKEN`, `QDRANT_HOST`, `QDRANT_API_KEY`.
 
 ---
 
-## 📄 License
+## Security and Multi-Tenancy
 
-This project is licensed under the MIT License.
+Data isolation is strictly enforced at every layer:
+
+1. **Session Assignment**: The client initializes a unique `docuai_session_id` in browser storage.
+2. **Request Scoping**: Requests forward the session identifier in the custom `x-session-id` HTTP header.
+3. **Storage Prefixes**: Files are saved under tenant prefixes (`users/{session_id}/`).
+4. **Vector Filters**: Qdrant queries execute mandatory metadata filtering on `session_id`, ensuring absolute cross-tenant isolation.
+
+---
+
+## License
+
+Distributed under the MIT License.

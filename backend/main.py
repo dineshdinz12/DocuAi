@@ -7,12 +7,15 @@ from pydantic import BaseModel
 from services.document_service import document_service
 from services.rag_service import rag_service
 from worker import process_document_task
+from api.auth import router as auth_router
 
 app = FastAPI(
     title="DocuAI Enterprise RAG API",
     description="High-performance backend for semantic document retrieval and ingestion.",
     version="1.0.0"
 )
+
+app.include_router(auth_router)
 
 # Enable CORS for Next.js frontend
 app.add_middleware(
