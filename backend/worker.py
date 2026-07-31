@@ -43,6 +43,26 @@ def process_document_task(document_id: str, file_uri: str, session_id: str = "de
         loader = PyPDFLoader(local_path)
         docs = loader.load()
         
+        # Check if any pages need OCR (empty page_content or very short)
+        try:
+            from pdf2image import convert_from_path
+            import pytesseract
+            
+            for i, doc in enumerate(docs):
+                page_content = doc.page_content.strip()
+                # If page content has less than 30 characters, run OCR
+                if len(page_content) < 30:
+                    page_num = i + 1
+                    print(f"[OCR] Page {page_num} of {document_id} has little or no text. Running OCR...")
+                    images = convert_from_path(local_path, first_page=page_num, last_page=page_num)
+                    if images:
+                        ocr_text = pytesseract.image_to_string(images[0])
+                        if ocr_text.strip():
+                            doc.page_content = ocr_text
+                            print(f"[OCR] Page {page_num} processed successfully. Extracted {len(ocr_text)} characters.")
+        except Exception as ocr_err:
+            print(f"[OCR] Error during document OCR execution: {ocr_err}")
+        
         # 3. Chunk Text
         text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
         chunks = text_splitter.split_documents(docs)
@@ -105,7 +125,7 @@ def process_document_task(document_id: str, file_uri: str, session_id: str = "de
         )
         print(f"Successfully upserted {len(points)} vectors to Qdrant for {document_id} (Session: {session_id})")
         
-        if os.path.exists(local_path):
+        if document_service.use_s3 and os.path.exists(local_path):
             os.remove(local_path)
             
         return {"status": "success", "document_id": document_id, "session_id": session_id}

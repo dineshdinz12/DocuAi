@@ -148,6 +148,6 @@ class DocumentService:
             except Exception:
                 return None
         else:
-            return f"/api/v1/documents/{doc_id}/download"
+            return f"/api/v1/documents/{doc_id}/download?session_id={session_id}"
 
 document_service = DocumentService()
