@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     QDRANT_PORT: int = 6333
     QDRANT_API_KEY: str = "" # Set for Qdrant Cloud!
 
+    # Supabase (Phase B - Persistence & Auth)
+    SUPABASE_URL: str = ""
+    SUPABASE_SERVICE_KEY: str = ""
+    SUPABASE_ANON_KEY: str = ""
+
     class Config:
         env_file = ".env"
         extra = "ignore"
