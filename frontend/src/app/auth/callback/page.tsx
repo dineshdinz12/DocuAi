@@ -3,25 +3,15 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import { setAuthenticatedUser } from "@/utils/session";
 
 export default function AuthCallbackPage() {
   const router = useRouter();
 
   useEffect(() => {
     const handleCallback = async () => {
-      const { data: { session }, error } = await supabase.auth.getSession();
-
-      if (session?.user) {
-        const u = session.user;
-        setAuthenticatedUser({
-          id: u.id,
-          name: u.user_metadata?.full_name || u.user_metadata?.name || u.email?.split("@")[0] || "User",
-          target: u.email || undefined,
-          auth_type: "google",
-          avatar_url: u.user_metadata?.avatar_url || undefined,
-        });
-      }
+      const code = new URL(window.location.href).searchParams.get("code");
+      if (code) await supabase.auth.exchangeCodeForSession(code);
+      else await supabase.auth.getSession();
 
       router.replace("/");
     };

@@ -15,9 +15,9 @@ if settings.HF_TOKEN:
     )
 else:
     from langchain_community.embeddings import OllamaEmbeddings
-    embeddings = OllamaEmbeddings(base_url="http://localhost:11434", model="nomic-embed-text")
+    embeddings = OllamaEmbeddings(base_url=settings.OLLAMA_BASE_URL, model="nomic-embed-text")
 
-def process_document_task(document_id: str, file_uri: str, session_id: str = "default_session"):
+def process_document_task(document_id: str, file_uri: str, session_id: str = "default_session", filename: str = "document.pdf"):
     """
     Background task to process a PDF and embed it into Qdrant.
     No longer uses Celery! Built for Serverless environments using BackgroundTasks.
@@ -114,7 +114,14 @@ def process_document_task(document_id: str, file_uri: str, session_id: str = "de
                         "text": chunk.page_content, 
                         "document_id": document_id, 
                         "session_id": session_id,
-                        "page": chunk.metadata.get("page", 0)
+                        "page": chunk.metadata.get("page", 0),
+                        "name": filename,
+                        "metadata": {
+                            "document_id": document_id,
+                            "session_id": session_id,
+                            "page": chunk.metadata.get("page", 0),
+                            "name": filename,
+                        },
                     }
                 )
             )
@@ -124,6 +131,8 @@ def process_document_task(document_id: str, file_uri: str, session_id: str = "de
             points=points
         )
         print(f"Successfully upserted {len(points)} vectors to Qdrant for {document_id} (Session: {session_id})")
+        from services.supabase_service import supabase_service
+        supabase_service.set_document_status(document_id, session_id, "ready")
         
         if document_service.use_s3 and os.path.exists(local_path):
             os.remove(local_path)
@@ -131,5 +140,7 @@ def process_document_task(document_id: str, file_uri: str, session_id: str = "de
         return {"status": "success", "document_id": document_id, "session_id": session_id}
         
     except Exception as e:
+        from services.supabase_service import supabase_service
+        supabase_service.set_document_status(document_id, session_id, "failed")
         print(f"Failed to process document {document_id}: {str(e)}")
         raise e

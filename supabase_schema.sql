@@ -20,8 +20,10 @@ create table if not exists public.documents (
   name text not null,
   storage_key text not null,        -- file path or S3 key
   size bigint default 0,
+  status text not null default 'processing' check (status in ('processing', 'ready', 'failed')),
   uploaded_at timestamptz default now()
 );
+alter table public.documents add column if not exists status text not null default 'processing';
 
 -- 3. Chat Sessions
 create table if not exists public.chat_sessions (
@@ -54,23 +56,17 @@ alter table public.chat_messages enable row level security;
 -- User Profiles policies
 drop policy if exists "Users manage own profile" on public.user_profiles;
 create policy "Users manage own profile" on public.user_profiles
-  for all using (auth.uid() = id);
+  for all using (auth.uid() = id) with check (auth.uid() = id);
 
 -- Documents policies - allow anon access via session_id for guests too
 drop policy if exists "Users manage own documents" on public.documents;
 create policy "Users manage own documents" on public.documents
-  for all using (
-    auth.uid() = user_id
-    or auth.uid() is null -- guest access (service role will handle)
-  );
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 -- Chat sessions policies
 drop policy if exists "Users manage own chat sessions" on public.chat_sessions;
 create policy "Users manage own chat sessions" on public.chat_sessions
-  for all using (
-    auth.uid() = user_id
-    or auth.uid() is null
-  );
+  for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
 -- Chat messages policies  
 drop policy if exists "Users manage own messages" on public.chat_messages;
@@ -78,9 +74,15 @@ create policy "Users manage own messages" on public.chat_messages
   for all using (
     session_id in (
       select id from public.chat_sessions
-      where user_id = auth.uid() or auth.uid() is null
+      where user_id = auth.uid()
     )
+  ) with check (
+    session_id in (select id from public.chat_sessions where user_id = auth.uid())
   );
+
+create index if not exists documents_user_id_idx on public.documents(user_id);
+create index if not exists chat_sessions_user_id_updated_idx on public.chat_sessions(user_id, updated_at desc);
+create index if not exists chat_messages_session_created_idx on public.chat_messages(session_id, created_at);
 
 -- ============================================================
 -- Auto-create user_profile on signup trigger

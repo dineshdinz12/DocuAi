@@ -1,0 +1,27 @@
+name: Supabase keepalive
+
+on:
+  schedule:
+    - cron: '17 0,8,16 * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  check-database:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Check Supabase with a read-only query
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_PUBLIC_KEY: ${{ secrets.SUPABASE_PUBLIC_KEY }}
+        run: |
+          if [[ -z "$SUPABASE_URL" || -z "$SUPABASE_PUBLIC_KEY" ]]; then
+            echo "::error::Set SUPABASE_URL and SUPABASE_PUBLIC_KEY in Actions secrets."
+            exit 1
+          fi
+          curl --fail --silent --show-error --max-time 20 --retry 2 \
+            --header "apikey: $SUPABASE_PUBLIC_KEY" \
+            --output /dev/null \
+            "${SUPABASE_URL%/}/rest/v1/documents?select=id&limit=1"

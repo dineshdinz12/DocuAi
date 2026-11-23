@@ -14,7 +14,7 @@ DocuAI is a high-performance, serverless Retrieval-Augmented Generation (RAG) pl
 
 - **Unified Single-Port Ingress**: Exposes a single public interface on port 3000 for both the Next.js UI and FastAPI endpoints via internal reverse-proxy rewrites, eliminating cross-origin resource sharing (CORS) security overhead.
 - **Robust Session and Data Persistence**: Migrated from ephemeral browser localStorage to Supabase PostgreSQL for user-scoped document metadata, persistent chat sessions, and message history.
-- **Dual Authentication Architecture**: Powered by Firebase Google Auth (for low-friction social login) and Supabase Magic Link Email OTP (for secure passwordless email login).
+- **Unified Authentication**: Supabase Auth provides Google OAuth and passwordless email links. The API verifies every access token and derives ownership from the verified user.
 - **Interactive Source Citations**: Responses are fully grounded with clickable source badges displaying the document name and specific page numbers (e.g. filename, page X) retrieved from vector metadata.
 - **Inline PDF Viewer**: View documents inline in a separate browser tab using optimized Content-Disposition inline headers instead of forcing user downloads.
 - **Full Chat Session Management**: Supports creating new chats, inline chat renaming, and chat deletions.
@@ -26,10 +26,10 @@ DocuAI is a high-performance, serverless Retrieval-Augmented Generation (RAG) pl
 
 | Layer | Technology | Description |
 | :--- | :--- | :--- |
-| **Frontend Framework** | Next.js 15 (App Router) | React 19, TypeScript |
+| **Frontend Framework** | Next.js 16 (App Router) | React 19, TypeScript |
 | **Styling & UI** | Tailwind CSS / Lucide | Minimalist dark mode UI with interactive states |
 | **Database & Persistence** | Supabase PostgreSQL | Profiles, chat sessions, message logs, and doc metadata |
-| **Authentication** | Firebase / Supabase Auth | Google OAuth popup + Passwordless Magic Links |
+| **Authentication** | Supabase Auth | Google OAuth + passwordless magic links |
 | **Backend API** | FastAPI (Python 3.11+) | Asynchronous execution, BackgroundTasks pipelines |
 | **LLM Inference** | Groq API | Llama 3.1 8B instant streaming model |
 | **Embeddings** | Hugging Face API | sentence-transformers/all-MiniLM-L6-v2 |
@@ -124,14 +124,6 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_public_key
 
-# Firebase Auth Configuration
-NEXT_PUBLIC_FIREBASE_API_KEY=AIzaSy...
-NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=docuai-1f77f.firebaseapp.com
-NEXT_PUBLIC_FIREBASE_PROJECT_ID=docuai-1f77f
-NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=docuai-1f77f.firebasestorage.app
-NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=...
-NEXT_PUBLIC_FIREBASE_APP_ID=...
-NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID=...
 ```
 
 ### 2. Local Development
@@ -175,9 +167,9 @@ Access the application at http://localhost:3000.
 
 Data isolation is strictly enforced at every layer:
 
-1. **Session Assignment**: The client initializes a unique docuai_session_id in browser storage.
-2. **Request Scoping**: Requests forward the session identifier in the custom x-session-id HTTP header.
-3. **Storage Prefixes**: Files are saved under tenant prefixes (users/session_id/).
+1. **Identity Verification**: Supabase issues the browser session and the API validates its access token for every protected request.
+2. **Request Scoping**: Requests send a Supabase bearer token. The backend verifies it and scopes every database, object-storage, and vector operation to that user.
+3. **Storage Prefixes**: Files are saved under verified user ID prefixes.
 4. **Vector Filters**: Qdrant queries execute mandatory metadata filtering on session_id, ensuring absolute cross-tenant isolation.
 
 ---

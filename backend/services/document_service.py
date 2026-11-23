@@ -1,7 +1,9 @@
 import boto3
+from botocore.config import Config
 from fastapi import UploadFile
 import uuid
 import os
+import re
 from datetime import datetime
 from core.config import settings
 
@@ -18,21 +20,25 @@ class DocumentService:
                 endpoint_url=endpoint,
                 aws_access_key_id=settings.MINIO_ACCESS_KEY,
                 aws_secret_access_key=settings.MINIO_SECRET_KEY,
+                config=Config(s3={"addressing_style": "path"}),
             )
             self.bucket = settings.MINIO_BUCKET
             self.s3_client.head_bucket(Bucket=self.bucket)
             self.use_s3 = True
             print("Connected to MinIO/S3 object storage.")
         except Exception as e:
+            if settings.APP_ENV == "production":
+                raise RuntimeError("Object storage is unavailable") from e
             print(f"MinIO/S3 not available ({e}). Falling back to local disk storage at {self.local_dir}")
             self.use_s3 = False
 
     def upload_document(self, file: UploadFile, session_id: str = "default_session") -> tuple:
         doc_id = str(uuid.uuid4())
+        safe_filename = re.sub(r"[^A-Za-z0-9._ -]", "_", os.path.basename(file.filename or "document.pdf"))
         
         if self.use_s3:
-            object_name = f"{session_id}/{doc_id}_{file.filename}"
-            temp_path = f"/tmp/{doc_id}_{file.filename}"
+            object_name = f"{session_id}/{doc_id}_{safe_filename}"
+            temp_path = f"/tmp/{doc_id}_{safe_filename}"
             with open(temp_path, "wb") as buffer:
                 buffer.write(file.file.read())
                 
@@ -42,21 +48,28 @@ class DocumentService:
                 object_name,
                 ExtraArgs={
                     "Metadata": {
-                        "original_filename": file.filename,
+                        "original_filename": safe_filename,
                         "session_id": session_id
                     }
                 }
             )
             if os.path.exists(temp_path):
                 os.remove(temp_path)
-            return doc_id, file.filename, f"s3://{self.bucket}/{object_name}"
+            return doc_id, safe_filename, f"s3://{self.bucket}/{object_name}"
         else:
             session_dir = os.path.join(self.local_dir, session_id)
             os.makedirs(session_dir, exist_ok=True)
-            file_path = os.path.join(session_dir, f"{doc_id}_{file.filename}")
+            file_path = os.path.join(session_dir, f"{doc_id}_{safe_filename}")
             with open(file_path, "wb") as buffer:
                 buffer.write(file.file.read())
-            return doc_id, file.filename, file_path
+            return doc_id, safe_filename, file_path
+
+    def download_to_path(self, storage_key: str, destination: str) -> str:
+        if self.use_s3 and storage_key.startswith(f"s3://{self.bucket}/"):
+            object_name = storage_key.removeprefix(f"s3://{self.bucket}/")
+            self.s3_client.download_file(self.bucket, object_name, destination)
+            return destination
+        return storage_key
 
     def list_documents(self, session_id: str = "default_session"):
         if self.use_s3:

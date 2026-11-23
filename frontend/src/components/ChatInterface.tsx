@@ -1,472 +1,162 @@
 "use client";
 
-import { useState, useRef, useEffect, Dispatch, SetStateAction } from "react";
-import { Send, Copy, Check, ArrowUpRight, FileText, RefreshCw, Mic } from "lucide-react";
+import { Dispatch, FormEvent, SetStateAction, useEffect, useRef, useState } from "react";
+import { ArrowUp, Check, Copy, FileText, Loader2, Sparkles } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Document } from "@/app/page";
-import { getSessionId } from "@/utils/session";
-import { DocumentUpload } from "@/components/DocumentUpload";
+import { apiFetch } from "@/lib/api";
+import { DocumentUpload } from "./DocumentUpload";
 
 export interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
-  sources?: Array<{ name: string; page?: number | null }>;
+  sources?: Array<{ name: string; page?: number | null; document_id?: string }>;
 }
 
-interface ChatInterfaceProps {
-  selectedDocuments: Document[];
+interface SelectedDocument { id: string; name: string }
+interface Props {
+  chatId: string;
+  selectedDocuments: SelectedDocument[];
   messages: Message[];
   setMessages: Dispatch<SetStateAction<Message[]>>;
-  onUploadSuccess?: () => void;
-  isStreaming: boolean;
-  setIsStreaming: Dispatch<SetStateAction<boolean>>;
+  onUploadSuccess: () => void;
+  onChatSaved: () => void;
+  onOpenDocument: (documentId: string) => void;
 }
 
-export function ChatInterface({ 
-  selectedDocuments, 
-  messages, 
-  setMessages, 
-  onUploadSuccess,
-  isStreaming,
-  setIsStreaming
-}: ChatInterfaceProps) {
+const starters = [
+  "Summarize the key decisions",
+  "Find risks and unresolved questions",
+  "Compare the selected documents",
+  "Create an executive brief",
+];
+
+export function ChatInterface({ chatId, selectedDocuments, messages, setMessages, onUploadSuccess, onChatSaved, onOpenDocument }: Props) {
   const [input, setInput] = useState("");
-  const [copiedId, setCopiedId] = useState<string | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const [isListening, setIsListening] = useState(false);
-  const [recognition, setRecognition] = useState<any>(null);
+  const [streaming, setStreaming] = useState(false);
+  const [copied, setCopied] = useState<string | null>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      if (SpeechRecognition) {
-        const recog = new SpeechRecognition();
-        recog.continuous = false;
-        recog.interimResults = false;
-        recog.lang = "en-US";
+  useEffect(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), [messages]);
 
-        recog.onstart = () => {
-          setIsListening(true);
-        };
-
-        recog.onerror = (event: any) => {
-          console.error("Speech recognition error", event.error);
-          setIsListening(false);
-        };
-
-        recog.onend = () => {
-          setIsListening(false);
-        };
-
-        recog.onresult = (event: any) => {
-          const transcript = event.results[0][0].transcript;
-          if (transcript) {
-            setInput(prev => (prev ? prev + " " + transcript : transcript));
-          }
-        };
-
-        setRecognition(recog);
-      }
-    }
-  }, []);
-
-  const toggleListening = () => {
-    if (!recognition) {
-      alert("Speech recognition is not supported in your browser. Please try Chrome or Safari.");
-      return;
-    }
-    if (isListening) {
-      recognition.stop();
-    } else {
-      recognition.start();
-    }
-  };
-
-  const suggestionCards = selectedDocuments.length > 0 
-    ? [
-        { title: "Summarize Document", query: `Provide a detailed summary of ${selectedDocuments[0].name}.` },
-        { title: "Extract Key Metrics", query: "List all specific metrics, key dates, and statistics in these files." },
-        { title: "Main Conclusions", query: "What are the primary conclusions and action items?" },
-        { title: "Format as Table", query: "Format the key findings into a clean Markdown table." }
-      ]
-    : [
-        { title: "Document Upload Guide", query: "How do I upload PDFs to start analyzing?" },
-        { title: "Platform Overview", query: "Explain how DocuAI handles vector search across documents." },
-        { title: "Multi-File Analysis", query: "Can I query multiple documents at the same time?" },
-        { title: "Data Security", query: "How is my document data isolated and secured?" }
-      ];
-
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  };
-
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages, isStreaming]);
-
-  const handleSend = async (query: string = input) => {
-    if (!query.trim() || isStreaming) return;
-
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      role: "user",
-      content: query,
-    };
-
-    setMessages((prev) => [...prev, userMessage]);
+  const send = async (value = input) => {
+    const query = value.trim();
+    if (!query || streaming) return;
+    const userMessage: Message = { id: crypto.randomUUID(), role: "user", content: query };
+    const assistantId = crypto.randomUUID();
+    setMessages((current) => [...current, userMessage, { id: assistantId, role: "assistant", content: "" }]);
     setInput("");
-    setIsStreaming(true);
-
-    const botMessageId = (Date.now() + 1).toString();
-    setMessages((prev) => [...prev, { id: botMessageId, role: "assistant", content: "" }]);
-
+    setStreaming(true);
     try {
-      const baseUrl = process.env.NEXT_PUBLIC_API_URL || "";
-      const currentUser = typeof window !== "undefined" 
-        ? (() => { try { return JSON.parse(localStorage.getItem("docuai_user") || "null"); } catch { return null; } })()
-        : null;
-      
-      // Generate a stable chat_id for this conversation (reuse or create)
-      const chatIdKey = `docuai_active_chat_id_${getSessionId()}`;
-      let activeChatId = localStorage.getItem(chatIdKey);
-      if (!activeChatId) {
-        activeChatId = `chat_${Date.now()}`;
-        localStorage.setItem(chatIdKey, activeChatId);
-      }
-
-      const headers: Record<string, string> = { 
-        "Content-Type": "application/json",
-        "x-session-id": getSessionId()
-      };
-      if (currentUser?.id) headers["x-user-id"] = currentUser.id;
-
-      const res = await fetch(`${baseUrl}/api/v1/chat`, {
+      const response = await apiFetch("/api/v1/chat", {
         method: "POST",
-        headers,
-        body: JSON.stringify({ 
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
           query,
-          document_ids: selectedDocuments.map(d => d.id),
-          history: messages.map(m => ({ role: m.role, content: m.content })),
-          chat_id: activeChatId,
+          document_ids: selectedDocuments.map((document) => document.id),
+          history: messages.map(({ role, content }) => ({ role, content })),
+          chat_id: chatId,
           user_message_id: userMessage.id,
-          bot_message_id: botMessageId,
+          bot_message_id: assistantId,
         }),
       });
-      
-       if (!res.body) throw new Error("No response stream");
-      
-      const reader = res.body.getReader();
+      if (!response.body) throw new Error("Response stream is unavailable");
+      const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
-      
-      let textQueue = "";
-      let displayedText = "";
-      let isStreamFinished = false;
-
-      // Start the typing animation interval loop
-      const typingPromise = new Promise<void>((resolve) => {
-        const typingInterval = setInterval(() => {
-          if (textQueue.length > 0) {
-            // Pick a chunk length (dynamic: speed up slightly if queue grows to avoid lag)
-            const takeCount = textQueue.length > 60 ? 6 : textQueue.length > 25 ? 3 : 1;
-            const chunk = textQueue.slice(0, takeCount);
-            textQueue = textQueue.slice(takeCount);
-            displayedText += chunk;
-
-            setMessages((prev) => 
-              prev.map((msg) => 
-                msg.id === botMessageId ? { ...msg, content: displayedText } : msg
-              )
-            );
-          } else if (isStreamFinished) {
-            clearInterval(typingInterval);
-            resolve();
-          }
-        }, 30);
-      });
-
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) {
-            isStreamFinished = true;
-            break;
-          }
-          
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n\n");
-          buffer = lines.pop() || "";
-
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (trimmed.startsWith("data: ")) {
-              try {
-                const jsonStr = trimmed.slice(6);
-                const data = JSON.parse(jsonStr);
-                if (data.text) {
-                  textQueue += data.text;
-                } else if (data.citations && Array.isArray(data.citations)) {
-                  // Phase A: attach citations to the bot message
-                  setMessages((prev) =>
-                    prev.map((msg) =>
-                      msg.id === botMessageId ? { ...msg, sources: data.citations } : msg
-                    )
-                  );
-                }
-              } catch (e) {
-                console.warn("SSE parse error", e);
-              }
-            }
-          }
+      while (true) {
+        const { done, value: bytes } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(bytes, { stream: true });
+        const events = buffer.split("\n\n");
+        buffer = events.pop() || "";
+        for (const event of events) {
+          if (!event.startsWith("data: ")) continue;
+          const data = JSON.parse(event.slice(6));
+          if (data.error) throw new Error(data.error);
+          setMessages((current) => current.map((message) => message.id === assistantId ? {
+            ...message,
+            content: data.text ? message.content + data.text : message.content,
+            sources: data.citations || message.sources,
+          } : message));
         }
-        
-        // Wait for typing animation to catch up completely
-        await typingPromise;
-      } catch (error) {
-        isStreamFinished = true;
-        throw error;
       }
+      onChatSaved();
     } catch (error) {
-      console.error("Streaming error:", error);
-      setMessages((prev) => 
-        prev.map((msg) => 
-          msg.id === botMessageId 
-            ? { ...msg, content: "I encountered an error connecting to the vector streaming engine." } 
-            : msg
-        )
-      );
+      const message = error instanceof Error ? error.message : "The assistant is unavailable.";
+      setMessages((current) => current.map((item) => item.id === assistantId ? { ...item, content: `I couldn't complete that request. ${message}` } : item));
     } finally {
-      setIsStreaming(false);
+      setStreaming(false);
     }
   };
 
-  const copyToClipboard = (text: string, id: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedId(id);
-    setTimeout(() => setCopiedId(null), 2000);
+  const submit = (event: FormEvent) => { event.preventDefault(); void send(); };
+  const copy = async (message: Message) => {
+    await navigator.clipboard.writeText(message.content);
+    setCopied(message.id);
+    window.setTimeout(() => setCopied(null), 1500);
   };
 
   return (
-    <div className="flex flex-col h-full bg-white relative">
-      {/* Sticky Document Context Badge Bar at the top */}
-      <div className="w-full border-b border-slate-200/60 bg-slate-50/50 backdrop-blur-xs px-6 py-2.5 flex items-center justify-between text-xs text-slate-500">
-        <div className="flex items-center gap-2 min-w-0">
-          {selectedDocuments.length > 0 ? (
-            <>
-              <div className="flex items-center gap-1.5 text-slate-700 font-semibold bg-emerald-50 text-emerald-700 px-2.5 py-0.5 rounded-full border border-emerald-200/50 text-[10px] uppercase tracking-wider flex-shrink-0">
-                <span className="relative flex h-1.5 w-1.5">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
-                </span>
-                <span>Document Mode</span>
-              </div>
-              <span className="text-slate-300">|</span>
-              <span className="font-medium text-slate-600 truncate text-[11px]">
-                Querying: <span className="font-semibold text-slate-800">{selectedDocuments.map(d => d.name).join(", ")}</span>
-              </span>
-            </>
-          ) : (
-            <div className="flex items-center gap-1.5 text-slate-600 bg-slate-100 px-2.5 py-0.5 rounded-full border border-slate-200/50 font-medium text-[10px] uppercase tracking-wider">
-              <div className="w-1.5 h-1.5 rounded-full bg-slate-400" />
-              <span>Conversation Mode</span>
-            </div>
-          )}
+    <section className="flex h-full min-w-0 flex-col bg-[#f7f8fc]">
+      <header className="flex h-16 items-center justify-between border-b border-slate-200/70 bg-white/80 px-5 backdrop-blur-xl md:px-8">
+        <div>
+          <h1 className="text-sm font-semibold text-slate-900">Intelligence workspace</h1>
+          <p className="mt-0.5 text-xs text-slate-500">{selectedDocuments.length ? `${selectedDocuments.length} source${selectedDocuments.length > 1 ? "s" : ""} active` : "General conversation"}</p>
         </div>
-        
-        {selectedDocuments.length > 0 && (
-          <span className="text-[10px] text-slate-400 font-medium hidden sm:inline flex-shrink-0">
-            Answers are grounded in selected files
-          </span>
-        )}
-      </div>
+        <div className="hidden items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 sm:flex">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Private workspace
+        </div>
+      </header>
 
-      <div className="flex-1 overflow-y-auto no-scrollbar px-6 py-8 w-full">
-        {messages.length === 0 ? (
-          <div className="max-w-3xl mx-auto w-full py-16 space-y-8 animate-in fade-in duration-300">
-            <div className="text-center">
-              <img 
-                src="/logo-transparent.png" 
-                alt="DocuAI Logo" 
-                className="w-20 h-20 mx-auto mb-4 object-contain" 
-              />
-              <h2 className="text-2xl font-bold text-slate-900 tracking-tight">
-                How can I help you today?
-              </h2>
-              <p className="mt-2 text-xs text-slate-500 max-w-md mx-auto leading-relaxed">
-                Ask complex questions across your uploaded PDF collection using serverless vector search.
-              </p>
+      <div className="flex-1 overflow-y-auto">
+        <div className="mx-auto flex min-h-full w-full max-w-4xl flex-col px-4 py-8 md:px-8">
+          {messages.length === 0 ? (
+            <div className="my-auto py-12">
+              <div className="grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-violet-600 to-indigo-500 text-white shadow-xl shadow-violet-500/20">
+                <Sparkles className="h-5 w-5" />
+              </div>
+              <h2 className="mt-6 max-w-xl text-3xl font-semibold tracking-[-0.03em] text-slate-950 md:text-4xl">Turn complex documents into clear decisions.</h2>
+              <p className="mt-3 max-w-2xl text-base leading-7 text-slate-500">Select your sources, ask naturally, and trace important answers back to the exact pages that informed them.</p>
+              <div className="mt-8 grid gap-3 sm:grid-cols-2">
+                {starters.map((starter) => <button key={starter} onClick={() => void send(starter)} className="rounded-2xl border border-slate-200 bg-white p-4 text-left text-sm font-medium text-slate-700 shadow-sm transition hover:-translate-y-0.5 hover:border-violet-200 hover:shadow-md">{starter}</button>)}
+              </div>
             </div>
-
-            {/* Perfectly Left-Aligned 2x2 Suggestion Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-w-2xl mx-auto pt-2">
-              {suggestionCards.map((card, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => handleSend(card.query)}
-                  className="p-4 bg-white hover:bg-slate-50/80 border border-slate-200/80 hover:border-slate-300 rounded-2xl shadow-sm transition-all group duration-200 flex items-start justify-between text-left w-full cursor-pointer"
-                >
-                  <div className="text-left flex-1 min-w-0 pr-2">
-                    <h4 className="text-xs font-bold text-slate-900 group-hover:text-slate-950 transition-colors truncate">
-                      {card.title}
-                    </h4>
-                    <p className="text-[11px] text-slate-500 font-normal mt-1 leading-snug text-left line-clamp-2">
-                      {card.query}
-                    </p>
-                  </div>
-                  <ArrowUpRight className="w-3.5 h-3.5 text-slate-300 group-hover:text-slate-700 transition-colors flex-shrink-0 mt-0.5" strokeWidth={1.5} />
-                </button>
-              ))}
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-8">
-            {messages.map((msg, idx) => {
-              const isCurrentlyStreaming = isStreaming && idx === messages.length - 1 && msg.role === "assistant";
-              return (
-                <div key={msg.id} className="space-y-2">
-                  {/* User Message */}
-                  {msg.role === "user" ? (
-                    <div className="max-w-[960px] mx-auto w-full flex justify-end">
-                      <div className="bg-[#f4f4f4] text-[#0d0d0d] rounded-[20px] px-5 py-2.5 max-w-[70%] text-[15px] font-normal leading-relaxed">
-                        <p className="whitespace-pre-wrap">{msg.content}</p>
-                      </div>
-                    </div>
+          ) : (
+            <div className="space-y-8 pb-6">
+              {messages.map((message) => (
+                <article key={message.id} className={message.role === "user" ? "ml-auto max-w-2xl" : "max-w-3xl"}>
+                  {message.role === "user" ? (
+                    <div className="rounded-[22px] rounded-br-md bg-slate-900 px-5 py-3.5 text-[15px] leading-6 text-white shadow-sm">{message.content}</div>
                   ) : (
-                    /* AI Streaming Text - Left Aligned (ChatGPT Style) - Moved further left */
-                    <div className="max-w-[960px] mx-auto w-full">
-                      <div className="py-3 text-[#0d0d0d] space-y-2">
-                        <div className="prose prose-slate prose-base max-w-none prose-p:leading-relaxed prose-pre:bg-slate-900 prose-pre:text-slate-100 prose-pre:rounded-xl text-[#0d0d0d] text-[15.5px]">
-                          {!msg.content && isCurrentlyStreaming ? (
-                            <div className="flex items-center gap-1.5 py-3">
-                              <div className="w-2 h-2 rounded-full bg-slate-400 animate-bounce [animation-delay:-0.3s]" />
-                              <div className="w-2 h-2 rounded-full bg-slate-400 animate-bounce [animation-delay:-0.15s]" />
-                              <div className="w-2 h-2 rounded-full bg-slate-400 animate-bounce" />
-                            </div>
-                          ) : (
-                            <>
-                              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                {msg.content}
-                              </ReactMarkdown>
-                              {isCurrentlyStreaming && (
-                                <span className="inline-block w-2 h-4 ml-1 bg-slate-900 animate-pulse align-middle" />
-                              )}
-                            </>
-                          )}
-                        </div>
-
-                        {/* Action Bar Below AI Response */}
-                        {!isCurrentlyStreaming && msg.content && (
-                          <div className="flex items-center gap-2 pt-1 text-xs text-slate-400">
-                            <button
-                              onClick={() => copyToClipboard(msg.content, msg.id)}
-                              className="flex items-center gap-1 px-2 py-1 hover:bg-slate-100 hover:text-slate-700 rounded-md transition-colors text-[11px] cursor-pointer"
-                              title="Copy Answer"
-                            >
-                              {copiedId === msg.id ? (
-                                <>
-                                  <Check className="w-3 h-3 text-emerald-600" strokeWidth={2} />
-                                  <span className="text-emerald-600 font-medium">Copied</span>
-                                </>
-                              ) : (
-                                <>
-                                  <Copy className="w-3 h-3" strokeWidth={1.5} />
-                                  <span>Copy</span>
-                                </>
-                              )}
-                            </button>
-
-                            <button
-                              onClick={() => handleSend(messages[idx - 1]?.content || "Regenerate answer")}
-                              className="flex items-center gap-1 px-2 py-1 hover:bg-slate-100 hover:text-slate-700 rounded-md transition-colors text-[11px] cursor-pointer"
-                              title="Regenerate Answer"
-                            >
-                              <RefreshCw className="w-3 h-3" strokeWidth={1.5} />
-                              <span>Regenerate</span>
-                            </button>
-                          </div>
-                        )}
-
-                        {/* Phase A: Citation Source Badges */}
-                        {!isCurrentlyStreaming && msg.sources && msg.sources.length > 0 && (
-                          <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-slate-100 mt-2">
-                            <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider mr-0.5">Sources:</span>
-                            {msg.sources.map((src, sIdx) => (
-                              <span
-                                key={sIdx}
-                                className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-full text-[10px] font-medium transition-colors cursor-default"
-                                title={`${src.name}${src.page != null ? `, page ${src.page + 1}` : ""}`}
-                              >
-                                <FileText className="w-2.5 h-2.5 text-slate-400" strokeWidth={1.5} />
-                                <span>{src.name}</span>
-                                {src.page != null && (
-                                  <span className="text-slate-400">· p.{src.page + 1}</span>
-                                )}
-                              </span>
-                            ))}
-                          </div>
-                        )}
+                    <div className="group flex gap-4">
+                      <div className="mt-1 grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-violet-100 text-violet-600"><Sparkles className="h-4 w-4" /></div>
+                      <div className="min-w-0 flex-1">
+                        {!message.content && streaming ? <div className="flex items-center gap-2 py-2 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin text-violet-500" />Reasoning across your sources…</div> : <div className="prose prose-slate max-w-none text-[15px] leading-7"><ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown></div>}
+                        {!!message.sources?.length && <div className="mt-4 flex flex-wrap gap-2">{message.sources.map((source, index) => <button type="button" disabled={!source.document_id} onClick={() => source.document_id && onOpenDocument(source.document_id)} key={`${source.name}-${source.page}-${index}`} className="inline-flex items-center gap-1.5 rounded-lg border border-violet-100 bg-violet-50 px-2.5 py-1.5 text-xs font-medium text-violet-700 transition enabled:hover:border-violet-300 enabled:hover:bg-violet-100 disabled:cursor-default"><FileText className="h-3.5 w-3.5" />{source.name}{source.page != null ? ` · p.${source.page + 1}` : ""}</button>)}</div>}
+                        {message.content && <button onClick={() => void copy(message)} className="mt-3 flex items-center gap-1.5 text-xs text-slate-400 opacity-0 transition hover:text-slate-700 group-hover:opacity-100">{copied === message.id ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}{copied === message.id ? "Copied" : "Copy"}</button>}
                       </div>
                     </div>
                   )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-
-        <div ref={messagesEndRef} />
-      </div>
-
-      {/* Centered Input Bar with Attachment Paperclip Button */}
-      <div className="p-4 max-w-3xl mx-auto w-full sticky bottom-0 bg-white">
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            handleSend();
-          }}
-          className="relative flex items-center bg-slate-100/70 border border-slate-200 focus-within:border-slate-400 focus-within:bg-white rounded-2xl shadow-sm transition-all pl-2"
-        >
-          {onUploadSuccess && (
-            <DocumentUpload onUploadSuccess={onUploadSuccess} variant="icon" />
+                </article>
+              ))}
+              <div ref={bottomRef} />
+            </div>
           )}
-
-          <button
-            type="button"
-            onClick={toggleListening}
-            className={`p-2 rounded-xl transition-all mr-1 cursor-pointer flex-shrink-0 ${
-              isListening 
-                ? "text-rose-600 bg-rose-50 animate-pulse hover:bg-rose-100" 
-                : "text-slate-400 hover:text-slate-700 hover:bg-slate-100"
-            }`}
-            title={isListening ? "Listening... Click to stop" : "Start voice input"}
-          >
-            <Mic className="w-4 h-4" strokeWidth={1.5} />
-          </button>
-
-          <input
-            type="text"
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder={
-              selectedDocuments.length > 0 
-                ? `Ask a question about ${selectedDocuments.length} PDF file(s)...`
-                : "Ask anything about your documents..."
-            }
-            className="w-full pl-2 pr-12 py-3.5 bg-transparent text-sm text-slate-900 placeholder-slate-400 focus:outline-none font-medium"
-          />
-
-          <button
-            type="submit"
-            disabled={!input.trim() || isStreaming}
-            className="absolute right-2.5 p-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl transition-all shadow-sm disabled:opacity-30"
-          >
-            <Send className="w-3.5 h-3.5" strokeWidth={1.5} />
-          </button>
-        </form>
+        </div>
       </div>
 
-    </div>
+      <div className="border-t border-slate-200/60 bg-white/85 p-4 backdrop-blur-xl">
+        <form onSubmit={submit} className="mx-auto max-w-4xl rounded-[22px] border border-slate-200 bg-white p-2 shadow-[0_12px_40px_rgba(15,23,42,0.08)] transition focus-within:border-violet-300 focus-within:ring-4 focus-within:ring-violet-100/60">
+          <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void send(); } }} rows={2} placeholder={selectedDocuments.length ? "Ask a question across the selected sources…" : "Ask anything, or select documents for grounded answers…"} className="block max-h-40 w-full resize-none bg-transparent px-3 py-2 text-[15px] leading-6 text-slate-900 outline-none placeholder:text-slate-400" />
+          <div className="flex items-center justify-between px-1 pb-1">
+            <div className="flex items-center gap-2"><DocumentUpload onUploadSuccess={onUploadSuccess} variant="icon" /><span className="hidden text-xs text-slate-400 sm:inline">PDF up to 25 MB</span></div>
+            <button disabled={!input.trim() || streaming} className="grid h-9 w-9 place-items-center rounded-xl bg-slate-900 text-white transition hover:bg-violet-600 disabled:bg-slate-200 disabled:text-slate-400" aria-label="Send message"><ArrowUp className="h-4 w-4" /></button>
+          </div>
+        </form>
+        <p className="mx-auto mt-2 max-w-4xl text-center text-[11px] text-slate-400">Verify important information against the cited source.</p>
+      </div>
+    </section>
   );
 }

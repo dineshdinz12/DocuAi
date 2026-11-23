@@ -1,6 +1,6 @@
 import { useState, useRef } from "react";
-import { Paperclip, FileText, CheckCircle2, AlertCircle, Loader2, Plus, UploadCloud } from "lucide-react";
-import { getSessionId } from "@/utils/session";
+import { Paperclip, FileText, CheckCircle2, AlertCircle, Loader2, UploadCloud } from "lucide-react";
+import { apiFetch } from "@/lib/api";
 
 interface DocumentUploadProps {
   onUploadSuccess: () => void;
@@ -44,16 +44,10 @@ export function DocumentUpload({ onUploadSuccess, variant = "button" }: Document
       const formData = new FormData();
       formData.append("file", selectedFile);
       
-      const baseUrl = process.env.NEXT_PUBLIC_API_URL || "";
-      const response = await fetch(`${baseUrl}/api/v1/documents/upload`, {
+      await apiFetch("/api/v1/documents/upload", {
         method: "POST",
-        headers: {
-          "x-session-id": getSessionId()
-        },
         body: formData,
       });
-
-      if (!response.ok) throw new Error("Upload failed");
       
       setUploadStatus("success");
       onUploadSuccess();
@@ -63,7 +57,7 @@ export function DocumentUpload({ onUploadSuccess, variant = "button" }: Document
         setFile(null);
       }, 3000);
       
-    } catch (error) {
+    } catch {
       setUploadStatus("error");
       setTimeout(() => setUploadStatus("idle"), 3000);
     }
