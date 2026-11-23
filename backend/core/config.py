@@ -18,7 +18,7 @@ class Settings(BaseSettings):
     # Cloud LLM & Embedding (Free Tier)
     GROQ_API_KEY: str = "" # Set this for $0 Llama 3!
     HF_TOKEN: str = "" # Set this for HuggingFace embeddings
-    MAIN_LLM_MODEL: str = "llama-3.1-8b-instant"
+    MAIN_LLM_MODEL: str = "openai/gpt-oss-20b"
 
     # Vector DB (Qdrant Cloud)
     QDRANT_HOST: str = "localhost"

@@ -39,7 +39,11 @@ export function ChatInterface({ chatId, selectedDocuments, messages, setMessages
   const [copied, setCopied] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), [messages]);
+  // Braces matter: scrollIntoView() returns a Promise in current Chrome, and React
+  // would treat an implicitly returned value as the effect's cleanup and call it.
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
   const send = async (value = input) => {
     const query = value.trim();

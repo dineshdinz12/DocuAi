@@ -31,7 +31,7 @@ DocuAI is a high-performance, serverless Retrieval-Augmented Generation (RAG) pl
 | **Database & Persistence** | Supabase PostgreSQL | Profiles, chat sessions, message logs, and doc metadata |
 | **Authentication** | Supabase Auth | Google OAuth + passwordless magic links |
 | **Backend API** | FastAPI (Python 3.11+) | Asynchronous execution, BackgroundTasks pipelines |
-| **LLM Inference** | Groq API | Llama 3.1 8B instant streaming model |
+| **LLM Inference** | Groq API | GPT-OSS 20B streaming model |
 | **Embeddings** | Hugging Face API | sentence-transformers/all-MiniLM-L6-v2 |
 | **Vector Database** | Qdrant Cloud | Metadata-filtered similarity search |
 | **Object Storage** | MinIO / AWS S3 | Client-scoped bucket prefixes |
@@ -98,7 +98,7 @@ Create backend/.env with the following configuration:
 # Cloud API Credentials
 GROQ_API_KEY=gsk_your_groq_api_key
 HF_TOKEN=hf_your_huggingface_token
-MAIN_LLM_MODEL=llama-3.1-8b-instant
+MAIN_LLM_MODEL=openai/gpt-oss-20b
 
 # Vector Database (Qdrant Cloud)
 QDRANT_HOST=https://your-cluster-id.cloud.qdrant.io

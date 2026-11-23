@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "DocuAI | Document Intelligence",
-  description: "Chat with multi-file PDFs using production RAG powered by Llama 3.1 8B, Qdrant Vector Cloud, and Google Auth.",
+  description: "Chat with multi-file PDFs using production RAG powered by GPT-OSS 20B on Groq, Qdrant Vector Cloud, and Google Auth.",
 };
 
 export default function RootLayout({

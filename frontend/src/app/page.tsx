@@ -52,17 +52,19 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    void supabase.auth.getUser().then(({ data }) => {
-      setUser(data.user);
-      setAuthReady(true);
-      setAuthOpen(!data.user);
-      if (data.user) { void loadDocuments(); void loadSessions(); }
-    });
+    // onAuthStateChange fires INITIAL_SESSION on subscribe, so it alone covers first load.
+    // Only reload data when the signed-in user actually changes (not on TOKEN_REFRESHED).
+    let loadedFor: string | null = null;
     const { data } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user || null);
+      const nextUser = session?.user || null;
+      setUser(nextUser);
       setAuthReady(true);
-      setAuthOpen(!session?.user);
-      if (session?.user) window.setTimeout(() => { void loadDocuments(); void loadSessions(); }, 0);
+      setAuthOpen(!nextUser);
+      if (nextUser && nextUser.id !== loadedFor) {
+        loadedFor = nextUser.id;
+        window.setTimeout(() => { void loadDocuments(); void loadSessions(); }, 0);
+      }
+      if (!nextUser) loadedFor = null;
     });
     return () => data.subscription.unsubscribe();
   }, [loadDocuments, loadSessions]);
