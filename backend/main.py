@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import tempfile
 from pathlib import Path
@@ -16,6 +17,8 @@ from services.document_service import document_service
 from services.rag_service import rag_service
 from services.supabase_service import supabase_service
 from worker import process_document_task
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="DocuAI API", version="3.0.0", docs_url="/docs" if settings.APP_ENV != "production" else None)
 origins = [origin.strip() for origin in settings.CORS_ORIGINS.split(",") if origin.strip()]
@@ -73,17 +76,39 @@ def upload_document(background_tasks: BackgroundTasks, file: UploadFile = File(.
 @app.get("/api/v1/documents")
 def list_documents(user: CurrentUser = Depends(require_user)):
     documents = supabase_service.list_documents(user.id, user.id)
-    return documents if documents is not None else document_service.list_documents(user.id)
+    if documents is None:
+        raise HTTPException(status_code=503, detail="The document list is temporarily unavailable.")
+    return documents
 
 
 @app.delete("/api/v1/documents/{doc_id}")
 def delete_document(doc_id: str, user: CurrentUser = Depends(require_user)):
     document = _owned_document(doc_id, user.id)
-    document_service.delete_document(doc_id, user.id)
+    if document.get("status") == "processing":
+        raise HTTPException(status_code=409, detail="Wait for indexing to finish before deleting this PDF.")
+    storage_key = document.get("storage_key")
+    removed = (
+        document_service.delete_stored_file(storage_key)
+        if storage_key
+        else document_service.delete_document(doc_id, user.id)
+    )
+    if not removed:
+        raise HTTPException(status_code=502, detail="The PDF could not be removed from storage.")
     rag_service.delete_document_vectors(doc_id, user.id)
     if not supabase_service.delete_document(doc_id, user.id):
         raise HTTPException(status_code=503, detail="Document metadata deletion failed")
     return {"message": "Document deleted", "name": document.get("name")}
+
+
+@app.post("/api/v1/documents/{doc_id}/retry", status_code=202)
+def retry_document(doc_id: str, background_tasks: BackgroundTasks, user: CurrentUser = Depends(require_user)):
+    document = supabase_service.get_document(doc_id, user.id)
+    if not document:
+        raise HTTPException(status_code=404, detail="Document not found")
+    if not supabase_service.claim_failed_document(doc_id, user.id):
+        raise HTTPException(status_code=409, detail="This document is no longer awaiting retry")
+    background_tasks.add_task(process_document_task, doc_id, document["storage_key"], user.id, document["name"])
+    return {"status": "processing"}
 
 
 @app.get("/api/v1/documents/{doc_id}/content")
@@ -144,6 +169,7 @@ async def chat(request: ChatRequest, user: CurrentUser = Depends(require_user)):
             supabase_service.save_message(request.user_message_id, request.chat_id, "user", request.query, [], user.id)
             supabase_service.save_message(request.bot_message_id, request.chat_id, "assistant", "".join(response_parts), response_sources, user.id)
         except Exception:
+            logger.exception("Chat generation failed")
             yield f"data: {json.dumps({'error': 'The assistant is temporarily unavailable.'})}\n\n"
 
     return StreamingResponse(generate(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})

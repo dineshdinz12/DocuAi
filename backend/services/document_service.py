@@ -127,23 +127,25 @@ class DocumentService:
         doc_to_delete = next((d for d in docs if d["id"] == doc_id), None)
         if not doc_to_delete:
             return False
-            
-        if self.use_s3:
-            try:
-                self.s3_client.delete_object(Bucket=self.bucket, Key=doc_to_delete["key"])
-                return True
-            except Exception as e:
-                print(f"Error deleting document {doc_id}: {e}")
-                return False
-        else:
-            try:
-                if os.path.exists(doc_to_delete["key"]):
-                    os.remove(doc_to_delete["key"])
-                    return True
-                return False
-            except Exception as e:
-                print(f"Error deleting local document {doc_id}: {e}")
-                return False
+        key = doc_to_delete["key"]
+        return self.delete_stored_file(f"s3://{self.bucket}/{key}" if self.use_s3 else key)
+
+    def delete_stored_file(self, storage_key: str) -> bool:
+        prefix = f"s3://{self.bucket}/"
+        try:
+            if storage_key.startswith("s3://"):
+                if not self.use_s3 or not storage_key.startswith(prefix):
+                    return False
+                self.s3_client.delete_object(Bucket=self.bucket, Key=storage_key.removeprefix(prefix))
+            else:
+                try:
+                    os.unlink(storage_key)
+                except FileNotFoundError:
+                    pass
+            return True
+        except Exception as error:
+            print(f"Document storage deletion failed: {type(error).__name__}")
+            return False
 
     def get_presigned_url(self, doc_id: str, session_id: str = "default_session"):
         docs = self.list_documents(session_id=session_id)

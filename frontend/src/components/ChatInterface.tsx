@@ -2,6 +2,7 @@
 
 import { Dispatch, FormEvent, SetStateAction, useEffect, useRef, useState } from "react";
 import { ArrowUp, Check, Copy, FileText, Loader2, Sparkles } from "lucide-react";
+import Image from "next/image";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { apiFetch } from "@/lib/api";
@@ -99,26 +100,21 @@ export function ChatInterface({ chatId, selectedDocuments, messages, setMessages
   };
 
   return (
-    <section className="flex h-full min-w-0 flex-col bg-[#f7f8fc]">
-      <header className="flex h-16 items-center justify-between border-b border-slate-200/70 bg-white/80 px-5 backdrop-blur-xl md:px-8">
+    <section className="flex h-full min-w-0 flex-col bg-white">
+      <header className="flex h-16 items-center justify-between border-b border-slate-200/70 bg-white/80 pl-16 pr-5 backdrop-blur-xl md:px-8">
         <div>
           <h1 className="text-sm font-semibold text-slate-900">Intelligence workspace</h1>
           <p className="mt-0.5 text-xs text-slate-500">{selectedDocuments.length ? `${selectedDocuments.length} source${selectedDocuments.length > 1 ? "s" : ""} active` : "General conversation"}</p>
-        </div>
-        <div className="hidden items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 sm:flex">
-          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" /> Private workspace
         </div>
       </header>
 
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto flex min-h-full w-full max-w-4xl flex-col px-4 py-8 md:px-8">
           {messages.length === 0 ? (
-            <div className="my-auto py-12">
-              <div className="grid h-12 w-12 place-items-center rounded-2xl bg-gradient-to-br from-violet-600 to-indigo-500 text-white shadow-xl shadow-violet-500/20">
-                <Sparkles className="h-5 w-5" />
-              </div>
-              <h2 className="mt-6 max-w-xl text-3xl font-semibold tracking-[-0.03em] text-slate-950 md:text-4xl">Turn complex documents into clear decisions.</h2>
-              <p className="mt-3 max-w-2xl text-base leading-7 text-slate-500">Select your sources, ask naturally, and trace important answers back to the exact pages that informed them.</p>
+            <div className="mx-auto my-auto w-full max-w-2xl py-12 text-center">
+              <Image src="/logo-transparent.png" alt="DocuAI" width={140} height={62} className="mx-auto h-14 w-auto object-contain" />
+              <h2 className="mt-5 text-3xl font-semibold tracking-tight text-slate-950">How can I help you today?</h2>
+              <p className="mt-3 text-sm text-slate-600">Ask a question or select PDFs to get answers with sources.</p>
               <div className="mt-8 grid gap-3 sm:grid-cols-2">
                 {starters.map((starter) => <button key={starter} onClick={() => void send(starter)} className="rounded-2xl border border-slate-200 bg-white p-4 text-left text-sm font-medium text-slate-700 shadow-sm transition hover:-translate-y-0.5 hover:border-violet-200 hover:shadow-md">{starter}</button>)}
               </div>
@@ -135,7 +131,7 @@ export function ChatInterface({ chatId, selectedDocuments, messages, setMessages
                       <div className="min-w-0 flex-1">
                         {!message.content && streaming ? <div className="flex items-center gap-2 py-2 text-sm text-slate-500"><Loader2 className="h-4 w-4 animate-spin text-violet-500" />Reasoning across your sources…</div> : <div className="prose prose-slate max-w-none text-[15px] leading-7"><ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown></div>}
                         {!!message.sources?.length && <div className="mt-4 flex flex-wrap gap-2">{message.sources.map((source, index) => <button type="button" disabled={!source.document_id} onClick={() => source.document_id && onOpenDocument(source.document_id)} key={`${source.name}-${source.page}-${index}`} className="inline-flex items-center gap-1.5 rounded-lg border border-violet-100 bg-violet-50 px-2.5 py-1.5 text-xs font-medium text-violet-700 transition enabled:hover:border-violet-300 enabled:hover:bg-violet-100 disabled:cursor-default"><FileText className="h-3.5 w-3.5" />{source.name}{source.page != null ? ` · p.${source.page + 1}` : ""}</button>)}</div>}
-                        {message.content && <button onClick={() => void copy(message)} className="mt-3 flex items-center gap-1.5 text-xs text-slate-400 opacity-0 transition hover:text-slate-700 group-hover:opacity-100">{copied === message.id ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}{copied === message.id ? "Copied" : "Copy"}</button>}
+                        {message.content && <button onClick={() => void copy(message)} className="mt-3 flex items-center gap-1.5 text-xs text-slate-600 transition hover:text-slate-900">{copied === message.id ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}{copied === message.id ? "Copied" : "Copy"}</button>}
                       </div>
                     </div>
                   )}

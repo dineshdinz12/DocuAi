@@ -71,6 +71,12 @@ class SupabaseService:
         client = get_supabase()
         if not client:
             return False
+        try:
+            client.table("documents").delete().eq("id", doc_id).eq("user_id", user_id).execute()
+            return True
+        except Exception:
+            logger.exception("Unable to delete document metadata")
+            return False
 
     def set_document_status(self, doc_id: str, user_id: str, status: str) -> bool:
         client = get_supabase()
@@ -82,12 +88,15 @@ class SupabaseService:
         except Exception:
             logger.exception("Unable to update document status")
             return False
-        try:
-            client.table("documents").delete().eq("id", doc_id).eq("user_id", user_id).execute()
-            return True
-        except Exception:
-            logger.exception("Unable to delete document metadata")
+
+    def claim_failed_document(self, doc_id: str, user_id: str) -> bool:
+        client = get_supabase()
+        if not client:
             return False
+        result = client.table("documents").update({"status": "processing"}).eq(
+            "id", doc_id
+        ).eq("user_id", user_id).eq("status", "failed").execute()
+        return bool(result.data)
 
     def create_or_update_session(self, session_id: str, chat_id: str, title: str, user_id: str) -> bool:
         client = get_supabase()

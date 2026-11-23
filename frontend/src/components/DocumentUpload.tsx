@@ -8,6 +8,7 @@ interface DocumentUploadProps {
 }
 
 export function DocumentUpload({ onUploadSuccess, variant = "button" }: DocumentUploadProps) {
+  const [errorMessage, setErrorMessage] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [uploadStatus, setUploadStatus] = useState<"idle" | "uploading" | "success" | "error">("idle");
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -31,12 +32,14 @@ export function DocumentUpload({ onUploadSuccess, variant = "button" }: Document
   };
 
   const handleFileUpload = async (selectedFile: File) => {
-    if (!selectedFile.name.endsWith(".pdf")) {
+    if (!selectedFile.name.toLowerCase().endsWith(".pdf")) {
+      setErrorMessage("Choose a PDF file.");
       setUploadStatus("error");
       setTimeout(() => setUploadStatus("idle"), 3000);
       return;
     }
 
+    setErrorMessage("");
     setFile(selectedFile);
     setUploadStatus("uploading");
 
@@ -57,7 +60,8 @@ export function DocumentUpload({ onUploadSuccess, variant = "button" }: Document
         setFile(null);
       }, 3000);
       
-    } catch {
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Upload failed");
       setUploadStatus("error");
       setTimeout(() => setUploadStatus("idle"), 3000);
     }
@@ -84,9 +88,10 @@ export function DocumentUpload({ onUploadSuccess, variant = "button" }: Document
           type="file" 
           ref={fileInputRef} 
           className="hidden" 
-          accept=".pdf"
-          onChange={(e) => e.target.files && handleFileUpload(e.target.files[0])}
+          accept=".pdf,application/pdf"
+          onChange={(e) => { const chosen = e.target.files?.[0]; e.target.value = ""; if (chosen) void handleFileUpload(chosen); }}
         />
+        {errorMessage && <p role="alert" className="text-xs text-rose-700">{errorMessage}</p>}
       </div>
     );
   }
@@ -124,10 +129,11 @@ export function DocumentUpload({ onUploadSuccess, variant = "button" }: Document
         type="file" 
         ref={fileInputRef} 
         className="hidden" 
-        accept=".pdf"
-        onChange={(e) => e.target.files && handleFileUpload(e.target.files[0])}
+        accept=".pdf,application/pdf"
+        onChange={(e) => { const chosen = e.target.files?.[0]; e.target.value = ""; if (chosen) void handleFileUpload(chosen); }}
       />
 
+      {errorMessage && <p role="alert" className="mt-2 text-sm text-rose-700">{errorMessage}</p>}
       {uploadStatus !== "idle" && file && (
         <div className="mt-2 flex items-center p-2 bg-white rounded-lg border border-slate-200 shadow-sm animate-in fade-in duration-200">
           <FileText className="w-3.5 h-3.5 text-slate-400 mr-2 flex-shrink-0" strokeWidth={1.5} />

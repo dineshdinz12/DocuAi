@@ -13,7 +13,8 @@ export async function apiFetch(path: string, init: RequestInit = {}) {
   const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
   if (!response.ok) {
     const body = await response.json().catch(() => null);
-    throw new Error(body?.detail || `Request failed (${response.status})`);
+    const detail = typeof body?.detail === "string" ? body.detail : null;
+    throw new Error(detail || `Request failed (${response.status})`);
   }
   return response;
 }

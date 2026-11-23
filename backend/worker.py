@@ -5,17 +5,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from qdrant_client import QdrantClient
 from qdrant_client.http.models import PointStruct, VectorParams, Distance
 from core.config import settings
-
-# If no HF Token is provided, fallback to standard model, otherwise use HuggingFace API Embeddings
-if settings.HF_TOKEN:
-    from langchain_huggingface import HuggingFaceEndpointEmbeddings
-    embeddings = HuggingFaceEndpointEmbeddings(
-        model="sentence-transformers/all-MiniLM-L6-v2",
-        huggingfacehub_api_token=settings.HF_TOKEN
-    )
-else:
-    from langchain_community.embeddings import OllamaEmbeddings
-    embeddings = OllamaEmbeddings(base_url=settings.OLLAMA_BASE_URL, model="nomic-embed-text")
+from services.embeddings import VECTOR_SIZE, get_embeddings
 
 def process_document_task(document_id: str, file_uri: str, session_id: str = "default_session", filename: str = "document.pdf"):
     """
@@ -54,9 +44,9 @@ def process_document_task(document_id: str, file_uri: str, session_id: str = "de
                 if len(page_content) < 30:
                     page_num = i + 1
                     print(f"[OCR] Page {page_num} of {document_id} has little or no text. Running OCR...")
-                    images = convert_from_path(local_path, first_page=page_num, last_page=page_num)
+                    images = convert_from_path(local_path, first_page=page_num, last_page=page_num, timeout=30)
                     if images:
-                        ocr_text = pytesseract.image_to_string(images[0])
+                        ocr_text = pytesseract.image_to_string(images[0], timeout=30)
                         if ocr_text.strip():
                             doc.page_content = ocr_text
                             print(f"[OCR] Page {page_num} processed successfully. Extracted {len(ocr_text)} characters.")
@@ -78,14 +68,15 @@ def process_document_task(document_id: str, file_uri: str, session_id: str = "de
         else:
             qdrant_client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
             
-        vector_size = 384 if settings.HF_TOKEN else 768
+        if not chunks:
+            raise ValueError("No readable text was found in the PDF")
         
         try:
             qdrant_client.get_collection("docuai_docs")
         except Exception:
             qdrant_client.create_collection(
                 collection_name="docuai_docs",
-                vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE)
+                vectors_config=VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE)
             )
 
         try:
@@ -104,11 +95,11 @@ def process_document_task(document_id: str, file_uri: str, session_id: str = "de
             pass
             
         points = []
-        for chunk in chunks:
-            vector = embeddings.embed_query(chunk.page_content)
+        vectors = get_embeddings().embed_documents([chunk.page_content for chunk in chunks])
+        for index, (chunk, vector) in enumerate(zip(chunks, vectors, strict=True)):
             points.append(
                 PointStruct(
-                    id=str(uuid.uuid4()),
+                    id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"{document_id}/{index}")),
                     vector=vector,
                     payload={
                         "text": chunk.page_content, 
@@ -134,8 +125,6 @@ def process_document_task(document_id: str, file_uri: str, session_id: str = "de
         from services.supabase_service import supabase_service
         supabase_service.set_document_status(document_id, session_id, "ready")
         
-        if document_service.use_s3 and os.path.exists(local_path):
-            os.remove(local_path)
             
         return {"status": "success", "document_id": document_id, "session_id": session_id}
         
@@ -143,4 +132,6 @@ def process_document_task(document_id: str, file_uri: str, session_id: str = "de
         from services.supabase_service import supabase_service
         supabase_service.set_document_status(document_id, session_id, "failed")
         print(f"Failed to process document {document_id}: {str(e)}")
-        raise e
+    finally:
+        if local_path != file_uri and os.path.isfile(local_path):
+            os.remove(local_path)
