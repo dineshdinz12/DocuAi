@@ -1,4 +1,7 @@
+import asyncio
 import json
+import logging
+import threading
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
 from core.config import settings
@@ -6,15 +9,24 @@ from services.embeddings import VECTOR_SIZE, get_embeddings
 from langchain_qdrant import QdrantVectorStore
 
 COLLECTION_NAME = "docuai_docs"
+logger = logging.getLogger(__name__)
 
 class RAGService:
     def __init__(self):
         self._initialized = False
         self._initialization_error = None
+        self._init_lock = threading.Lock()
 
     def _initialize(self):
         if self._initialized:
             return
+        # Requests that arrive mid-warmup wait here instead of initializing a second time.
+        with self._init_lock:
+            if self._initialized:
+                return
+            self._initialize_unlocked()
+
+    def _initialize_unlocked(self):
         self.embeddings = get_embeddings()
 
         # 3. Initialize Cloud Vector Database (Qdrant Cloud) or fallback to Local
@@ -68,6 +80,16 @@ class RAGService:
         except Exception as exc:
             self._initialization_error = str(exc)
             raise RuntimeError("Document intelligence services are unavailable") from exc
+
+    def warm_up(self) -> None:
+        """Load the embedding model, connect to Qdrant and run one embedding so the
+        first document question does not pay the cold-start cost."""
+        try:
+            self._ensure_initialized()
+            self.embeddings.embed_query("warm up")
+            logger.info("Document intelligence services warmed up")
+        except Exception:
+            logger.exception("Warm-up failed; services will initialize on first use")
 
     def is_ready(self) -> bool:
         try:
@@ -146,7 +168,8 @@ class RAGService:
             raise RuntimeError("Document retrieval failed") from e
 
     async def stream_response(self, query: str, document_ids: list = None, session_id: str = "default_session", history: list = None):
-        context, sources = self._get_context(query, document_ids, session_id=session_id)
+        # Embedding + vector search are blocking; keep them off the event loop.
+        context, sources = await asyncio.to_thread(self._get_context, query, document_ids, session_id)
         
         system_instructions = """You are DocuAI, an enterprise-grade AI Document Intelligence Assistant designed to provide ChatGPT-quality conversations while specializing in understanding, analyzing, reasoning, and answering questions from user-uploaded documents.
 

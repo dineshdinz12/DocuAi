@@ -1,7 +1,10 @@
+import asyncio
 import json
 import logging
 import os
 import tempfile
+import threading
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import List
 
@@ -20,7 +23,16 @@ from worker import process_document_task
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="DocuAI API", version="3.0.0", docs_url="/docs" if settings.APP_ENV != "production" else None)
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # Warm the embedding model and Qdrant client in the background so the server
+    # accepts traffic immediately and the first document question is fast.
+    threading.Thread(target=rag_service.warm_up, name="rag-warmup", daemon=True).start()
+    yield
+
+
+app = FastAPI(title="DocuAI API", version="3.0.0", docs_url="/docs" if settings.APP_ENV != "production" else None, lifespan=lifespan)
 origins = [origin.strip() for origin in settings.CORS_ORIGINS.split(",") if origin.strip()]
 app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=True, allow_methods=["GET", "POST", "DELETE"], allow_headers=["Authorization", "Content-Type"])
 
@@ -161,9 +173,9 @@ class ChatRequest(BaseModel):
 
 @app.post("/api/v1/chat")
 async def chat(request: ChatRequest, user: CurrentUser = Depends(require_user)):
-    if request.document_ids and not supabase_service.user_owns_documents(request.document_ids, user.id):
+    if request.document_ids and not await asyncio.to_thread(supabase_service.user_owns_documents, request.document_ids, user.id):
         raise HTTPException(status_code=403, detail="One or more documents are unavailable")
-    if not supabase_service.ensure_session(request.chat_id, user.id, request.query[:60]):
+    if not await asyncio.to_thread(supabase_service.ensure_session, request.chat_id, user.id, request.query[:60]):
         raise HTTPException(status_code=503, detail="Chat session could not be created")
     response_parts: list[str] = []
     response_sources: list[dict] = []
@@ -177,8 +189,8 @@ async def chat(request: ChatRequest, user: CurrentUser = Depends(require_user)):
                 if "citations" in data:
                     response_sources.extend(data["citations"])
                 yield chunk
-            supabase_service.save_message(request.user_message_id, request.chat_id, "user", request.query, [], user.id)
-            supabase_service.save_message(request.bot_message_id, request.chat_id, "assistant", "".join(response_parts), response_sources, user.id)
+            await asyncio.to_thread(supabase_service.save_message, request.user_message_id, request.chat_id, "user", request.query, [], user.id)
+            await asyncio.to_thread(supabase_service.save_message, request.bot_message_id, request.chat_id, "assistant", "".join(response_parts), response_sources, user.id)
         except Exception:
             logger.exception("Chat generation failed")
             yield f"data: {json.dumps({'error': 'The assistant is temporarily unavailable.'})}\n\n"
