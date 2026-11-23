@@ -131,9 +131,9 @@ class DocumentService:
         return self.delete_stored_file(f"s3://{self.bucket}/{key}" if self.use_s3 else key)
 
     def delete_stored_file(self, storage_key: str) -> bool:
-        prefix = f"s3://{self.bucket}/"
         try:
             if storage_key.startswith("s3://"):
+                prefix = f"s3://{self.bucket}/"
                 if not self.use_s3 or not storage_key.startswith(prefix):
                     return False
                 self.s3_client.delete_object(Bucket=self.bucket, Key=storage_key.removeprefix(prefix))

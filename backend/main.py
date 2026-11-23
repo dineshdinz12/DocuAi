@@ -47,6 +47,22 @@ def _owned_document(doc_id: str, user_id: str) -> dict:
     return document
 
 
+def _owned_storage_key(document: dict, doc_id: str, user_id: str) -> str:
+    key = document.get("storage_key") or document.get("key") or ""
+    if document_service.use_s3:
+        bucket_prefix = f"s3://{document_service.bucket}/"
+        object_key = key.removeprefix(bucket_prefix)
+        folder, _, filename = object_key.partition("/")
+        if folder == user_id and filename.startswith(f"{doc_id}_") and "/" not in filename:
+            return f"{bucket_prefix}{object_key}"
+    elif key:
+        path = Path(key).resolve()
+        owner_folder = (Path(document_service.local_dir) / user_id).resolve()
+        if path.parent == owner_folder and path.name.startswith(f"{doc_id}_"):
+            return str(path)
+    raise HTTPException(status_code=404, detail="Stored file not found")
+
+
 @app.post("/api/v1/documents/upload", status_code=202)
 def upload_document(background_tasks: BackgroundTasks, file: UploadFile = File(...), user: CurrentUser = Depends(require_user)):
     filename = file.filename or ""
@@ -63,13 +79,14 @@ def upload_document(background_tasks: BackgroundTasks, file: UploadFile = File(.
     try:
         doc_id, safe_name, storage_key = document_service.upload_document(file, session_id=user.id)
         if not supabase_service.save_document(doc_id, safe_name, storage_key, size, user.id, user.id):
-            document_service.delete_document(doc_id, user.id)
+            document_service.delete_stored_file(storage_key)
             raise HTTPException(status_code=503, detail="Document metadata could not be saved")
         background_tasks.add_task(process_document_task, doc_id, storage_key, user.id, safe_name)
         return {"message": "Document accepted for processing", "document_id": doc_id, "filename": safe_name, "status": "processing"}
     except HTTPException:
         raise
     except Exception as exc:
+        logger.exception("Document upload failed")
         raise HTTPException(status_code=500, detail="Document upload failed") from exc
 
 
@@ -86,13 +103,8 @@ def delete_document(doc_id: str, user: CurrentUser = Depends(require_user)):
     document = _owned_document(doc_id, user.id)
     if document.get("status") == "processing":
         raise HTTPException(status_code=409, detail="Wait for indexing to finish before deleting this PDF.")
-    storage_key = document.get("storage_key")
-    removed = (
-        document_service.delete_stored_file(storage_key)
-        if storage_key
-        else document_service.delete_document(doc_id, user.id)
-    )
-    if not removed:
+    storage_key = _owned_storage_key(document, doc_id, user.id)
+    if not document_service.delete_stored_file(storage_key):
         raise HTTPException(status_code=502, detail="The PDF could not be removed from storage.")
     rag_service.delete_document_vectors(doc_id, user.id)
     if not supabase_service.delete_document(doc_id, user.id):
@@ -105,18 +117,17 @@ def retry_document(doc_id: str, background_tasks: BackgroundTasks, user: Current
     document = supabase_service.get_document(doc_id, user.id)
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
+    storage_key = _owned_storage_key(document, doc_id, user.id)
     if not supabase_service.claim_failed_document(doc_id, user.id):
         raise HTTPException(status_code=409, detail="This document is no longer awaiting retry")
-    background_tasks.add_task(process_document_task, doc_id, document["storage_key"], user.id, document["name"])
+    background_tasks.add_task(process_document_task, doc_id, storage_key, user.id, document["name"])
     return {"status": "processing"}
 
 
 @app.get("/api/v1/documents/{doc_id}/content")
 def document_content(doc_id: str, download: bool = False, user: CurrentUser = Depends(require_user)):
     document = _owned_document(doc_id, user.id)
-    storage_key = document.get("storage_key") or document.get("key")
-    if not storage_key:
-        raise HTTPException(status_code=404, detail="Stored file not found")
+    storage_key = _owned_storage_key(document, doc_id, user.id)
     if document_service.use_s3:
         handle = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
         handle.close()
@@ -131,7 +142,7 @@ def document_content(doc_id: str, download: bool = False, user: CurrentUser = De
         raise HTTPException(status_code=404, detail="Stored file not found")
     disposition = "attachment" if download else "inline"
     cleanup = BackgroundTask(os.unlink, path) if document_service.use_s3 else None
-    return FileResponse(path, media_type="application/pdf", filename=document["name"], headers={"Content-Disposition": f'{disposition}; filename="{document["name"]}"'}, background=cleanup)
+    return FileResponse(path, media_type="application/pdf", filename=document["name"], content_disposition_type=disposition, background=cleanup)
 
 
 class MessageModel(BaseModel):
